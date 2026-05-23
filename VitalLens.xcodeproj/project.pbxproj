@@ -1,0 +1,542 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		1D5A8EB1B74AE348DAC74D7B /* ExperimentTag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7089C61101D288CFF518D010 /* ExperimentTag.swift */; };
+		1DDFC017FA106A93E0F23259 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BE68A7B6B7DBDB4C4A8E951 /* SettingsView.swift */; };
+		21886DA85E2C33893988CFD9 /* WellnessScoreEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CF94BD95538694AEC55C3E8 /* WellnessScoreEngineTests.swift */; };
+		3784F67C4B94D5C9B2007A57 /* EyeFocusTestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2E612F1998E7E112FE99637 /* EyeFocusTestView.swift */; };
+		44BE6C54BBCEC6EE220307F3 /* LocalStorageManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94892B11FF44D94587A58895 /* LocalStorageManagerTests.swift */; };
+		4BDC34E165C7BC0888119FC6 /* DisclaimerBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA3798E603FE8FBBB28365E7 /* DisclaimerBanner.swift */; };
+		4D649D9AA49CD9003C881720 /* MetricCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BDAF412CA268FD6A6196261 /* MetricCard.swift */; };
+		4F97D65B4A3E3B76633B40AD /* LocalStorageManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C9E9C1A8E82713DD0ABBF0A /* LocalStorageManager.swift */; };
+		50B794B3491D9347698028C0 /* HealthPermissionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE69B47AB0B05E0843B3723B /* HealthPermissionView.swift */; };
+		662ECFF61DF2D51F3F010ACC /* InsightReportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4F0C270BF72D5D94C53391C /* InsightReportView.swift */; };
+		6B7D87AB3C2183A885C775DB /* SleepDurationParsingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEAA30A89865B7550D1126E4 /* SleepDurationParsingTests.swift */; };
+		70745CB65F72AD4275F85541 /* BaselineCalculationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 263F319594AFC6B445D37BC9 /* BaselineCalculationTests.swift */; };
+		847F2C31D04B96D6791BD3A8 /* BaselineMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = D087FBAE43F92957FD782EC7 /* BaselineMetrics.swift */; };
+		8F103AE46EE794202CCD3F01 /* ExperimentManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91BBCAA7EA33D22FBD0C2783 /* ExperimentManager.swift */; };
+		9D460879A073B2B3E66E5041 /* WellnessScoreEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35B9FFB0E6598A65373CB592 /* WellnessScoreEngine.swift */; };
+		A0B4391F7E723CCE8E6C7B20 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF78C284C6842C145F12BD9F /* OnboardingView.swift */; };
+		AF984A40D808741610F3A0B9 /* HealthDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 819D61137058BB999B610171 /* HealthDashboardView.swift */; };
+		C06E9B3EC8A4827803F4DA4F /* WellnessDeltaResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C5833DB3D630E70BB16CC0C /* WellnessDeltaResult.swift */; };
+		C0D718EB23140C167D462BF2 /* MockData in Resources */ = {isa = PBXBuildFile; fileRef = 7EECF40332F7EB3522328034 /* MockData */; };
+		CC3CB10DF16E37AD14041107 /* EyeFocusTestResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EDA281E6243DFDC411B6B97 /* EyeFocusTestResult.swift */; };
+		CFF9565D224D78105F2F2B93 /* EyeFocusTestManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E2E7C1F9F0C46041F947453 /* EyeFocusTestManager.swift */; };
+		DE50681D576FF429B373D8B4 /* DailyHealthRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = E494463099504D53F66418A5 /* DailyHealthRecord.swift */; };
+		E23361B848D9A0C13BEAD98E /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25BC45BA1F25C5056F25D2A2 /* ContentView.swift */; };
+		F0A68148A35316B718442A3D /* ExperimentSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE9CE95362155EABF5372DC3 /* ExperimentSelectionView.swift */; };
+		F53D5AC7F7AE3700100B9A8A /* EyeFocusScoringTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67C42EA6B12D0848FE7419D6 /* EyeFocusScoringTests.swift */; };
+		F846A2E9416670B86A30D586 /* HealthKitManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 857376AC5785BBC3836496D3 /* HealthKitManager.swift */; };
+		FB707DA5E3A071DCB72A0E15 /* VitalLensApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BD45AE281CFEFB6CD28EDA2 /* VitalLensApp.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		442CA23B9FF7D73C6D12A474 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B3C0EF2ADC8C56393EB0BB83 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 407A542F69BFC7DB9CDCBF2A;
+			remoteInfo = VitalLens;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		0C5833DB3D630E70BB16CC0C /* WellnessDeltaResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WellnessDeltaResult.swift; sourceTree = "<group>"; };
+		1BE68A7B6B7DBDB4C4A8E951 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		1E2E7C1F9F0C46041F947453 /* EyeFocusTestManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EyeFocusTestManager.swift; sourceTree = "<group>"; };
+		25BC45BA1F25C5056F25D2A2 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		263F319594AFC6B445D37BC9 /* BaselineCalculationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaselineCalculationTests.swift; sourceTree = "<group>"; };
+		3133DE9FC9C075676FD6146C /* VitalLens.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = VitalLens.entitlements; sourceTree = "<group>"; };
+		35B9FFB0E6598A65373CB592 /* WellnessScoreEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WellnessScoreEngine.swift; sourceTree = "<group>"; };
+		3EDA281E6243DFDC411B6B97 /* EyeFocusTestResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EyeFocusTestResult.swift; sourceTree = "<group>"; };
+		4BD45AE281CFEFB6CD28EDA2 /* VitalLensApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VitalLensApp.swift; sourceTree = "<group>"; };
+		4CF94BD95538694AEC55C3E8 /* WellnessScoreEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WellnessScoreEngineTests.swift; sourceTree = "<group>"; };
+		5BDAF412CA268FD6A6196261 /* MetricCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricCard.swift; sourceTree = "<group>"; };
+		67C42EA6B12D0848FE7419D6 /* EyeFocusScoringTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EyeFocusScoringTests.swift; sourceTree = "<group>"; };
+		6C9E9C1A8E82713DD0ABBF0A /* LocalStorageManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalStorageManager.swift; sourceTree = "<group>"; };
+		7089C61101D288CFF518D010 /* ExperimentTag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExperimentTag.swift; sourceTree = "<group>"; };
+		7EECF40332F7EB3522328034 /* MockData */ = {isa = PBXFileReference; lastKnownFileType = folder; name = MockData; path = VitalLens/MockData; sourceTree = SOURCE_ROOT; };
+		819D61137058BB999B610171 /* HealthDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthDashboardView.swift; sourceTree = "<group>"; };
+		857376AC5785BBC3836496D3 /* HealthKitManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitManager.swift; sourceTree = "<group>"; };
+		91BBCAA7EA33D22FBD0C2783 /* ExperimentManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExperimentManager.swift; sourceTree = "<group>"; };
+		94892B11FF44D94587A58895 /* LocalStorageManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalStorageManagerTests.swift; sourceTree = "<group>"; };
+		A37B144DF0A9FEFA1665043C /* VitalLens.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = VitalLens.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AE69B47AB0B05E0843B3723B /* HealthPermissionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthPermissionView.swift; sourceTree = "<group>"; };
+		AF78C284C6842C145F12BD9F /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		B4F0C270BF72D5D94C53391C /* InsightReportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightReportView.swift; sourceTree = "<group>"; };
+		CA3798E603FE8FBBB28365E7 /* DisclaimerBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisclaimerBanner.swift; sourceTree = "<group>"; };
+		D087FBAE43F92957FD782EC7 /* BaselineMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaselineMetrics.swift; sourceTree = "<group>"; };
+		E494463099504D53F66418A5 /* DailyHealthRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyHealthRecord.swift; sourceTree = "<group>"; };
+		EDF20EADAE0F6DE76B5B582E /* VitalLensTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = VitalLensTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		EE9CE95362155EABF5372DC3 /* ExperimentSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExperimentSelectionView.swift; sourceTree = "<group>"; };
+		EEAA30A89865B7550D1126E4 /* SleepDurationParsingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepDurationParsingTests.swift; sourceTree = "<group>"; };
+		F2E612F1998E7E112FE99637 /* EyeFocusTestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EyeFocusTestView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		015FE103FD4A136657835BFD /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				D087FBAE43F92957FD782EC7 /* BaselineMetrics.swift */,
+				E494463099504D53F66418A5 /* DailyHealthRecord.swift */,
+				7089C61101D288CFF518D010 /* ExperimentTag.swift */,
+				3EDA281E6243DFDC411B6B97 /* EyeFocusTestResult.swift */,
+				0C5833DB3D630E70BB16CC0C /* WellnessDeltaResult.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		0F80EE2F4546FE7E99BB093C /* VitalLensTests */ = {
+			isa = PBXGroup;
+			children = (
+				263F319594AFC6B445D37BC9 /* BaselineCalculationTests.swift */,
+				67C42EA6B12D0848FE7419D6 /* EyeFocusScoringTests.swift */,
+				94892B11FF44D94587A58895 /* LocalStorageManagerTests.swift */,
+				EEAA30A89865B7550D1126E4 /* SleepDurationParsingTests.swift */,
+				4CF94BD95538694AEC55C3E8 /* WellnessScoreEngineTests.swift */,
+			);
+			path = VitalLensTests;
+			sourceTree = "<group>";
+		};
+		39A1B8CE22B0553D08FC51AD /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				EE9CE95362155EABF5372DC3 /* ExperimentSelectionView.swift */,
+				F2E612F1998E7E112FE99637 /* EyeFocusTestView.swift */,
+				819D61137058BB999B610171 /* HealthDashboardView.swift */,
+				AE69B47AB0B05E0843B3723B /* HealthPermissionView.swift */,
+				B4F0C270BF72D5D94C53391C /* InsightReportView.swift */,
+				AF78C284C6842C145F12BD9F /* OnboardingView.swift */,
+				1BE68A7B6B7DBDB4C4A8E951 /* SettingsView.swift */,
+				B00CCC3AE23A736B62DB7006 /* Components */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		4185D654507027EDFE3C6AB1 = {
+			isa = PBXGroup;
+			children = (
+				C601A7FB4C18BB3349C192A9 /* VitalLens */,
+				0F80EE2F4546FE7E99BB093C /* VitalLensTests */,
+				42168864127A446CD0121EBC /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		42168864127A446CD0121EBC /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A37B144DF0A9FEFA1665043C /* VitalLens.app */,
+				EDF20EADAE0F6DE76B5B582E /* VitalLensTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		64C01B3C4ADD1CCF462ADF9E /* Managers */ = {
+			isa = PBXGroup;
+			children = (
+				91BBCAA7EA33D22FBD0C2783 /* ExperimentManager.swift */,
+				1E2E7C1F9F0C46041F947453 /* EyeFocusTestManager.swift */,
+				857376AC5785BBC3836496D3 /* HealthKitManager.swift */,
+				6C9E9C1A8E82713DD0ABBF0A /* LocalStorageManager.swift */,
+				35B9FFB0E6598A65373CB592 /* WellnessScoreEngine.swift */,
+			);
+			path = Managers;
+			sourceTree = "<group>";
+		};
+		B00CCC3AE23A736B62DB7006 /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				CA3798E603FE8FBBB28365E7 /* DisclaimerBanner.swift */,
+				5BDAF412CA268FD6A6196261 /* MetricCard.swift */,
+			);
+			path = Components;
+			sourceTree = "<group>";
+		};
+		C601A7FB4C18BB3349C192A9 /* VitalLens */ = {
+			isa = PBXGroup;
+			children = (
+				25BC45BA1F25C5056F25D2A2 /* ContentView.swift */,
+				7EECF40332F7EB3522328034 /* MockData */,
+				3133DE9FC9C075676FD6146C /* VitalLens.entitlements */,
+				4BD45AE281CFEFB6CD28EDA2 /* VitalLensApp.swift */,
+				64C01B3C4ADD1CCF462ADF9E /* Managers */,
+				015FE103FD4A136657835BFD /* Models */,
+				39A1B8CE22B0553D08FC51AD /* Views */,
+			);
+			path = VitalLens;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		407A542F69BFC7DB9CDCBF2A /* VitalLens */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2A492350BDB4F1A321613EEA /* Build configuration list for PBXNativeTarget "VitalLens" */;
+			buildPhases = (
+				A2F709BB1A272FDC63CFE832 /* Sources */,
+				5159798D143E9E7E4FA52A9C /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = VitalLens;
+			packageProductDependencies = (
+			);
+			productName = VitalLens;
+			productReference = A37B144DF0A9FEFA1665043C /* VitalLens.app */;
+			productType = "com.apple.product-type.application";
+		};
+		78DE531AF3B70B5FF4014C5A /* VitalLensTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C4A3507E99D6AC418979DE36 /* Build configuration list for PBXNativeTarget "VitalLensTests" */;
+			buildPhases = (
+				38468AF69002254183BA02F2 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				73FA6C64670BB6E29816B113 /* PBXTargetDependency */,
+			);
+			name = VitalLensTests;
+			packageProductDependencies = (
+			);
+			productName = VitalLensTests;
+			productReference = EDF20EADAE0F6DE76B5B582E /* VitalLensTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		B3C0EF2ADC8C56393EB0BB83 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					407A542F69BFC7DB9CDCBF2A = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+					78DE531AF3B70B5FF4014C5A = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 3CFCC26BF837070B4B7FABB1 /* Build configuration list for PBXProject "VitalLens" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 4185D654507027EDFE3C6AB1;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 42168864127A446CD0121EBC /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				407A542F69BFC7DB9CDCBF2A /* VitalLens */,
+				78DE531AF3B70B5FF4014C5A /* VitalLensTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		5159798D143E9E7E4FA52A9C /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C0D718EB23140C167D462BF2 /* MockData in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		38468AF69002254183BA02F2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				70745CB65F72AD4275F85541 /* BaselineCalculationTests.swift in Sources */,
+				F53D5AC7F7AE3700100B9A8A /* EyeFocusScoringTests.swift in Sources */,
+				44BE6C54BBCEC6EE220307F3 /* LocalStorageManagerTests.swift in Sources */,
+				6B7D87AB3C2183A885C775DB /* SleepDurationParsingTests.swift in Sources */,
+				21886DA85E2C33893988CFD9 /* WellnessScoreEngineTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A2F709BB1A272FDC63CFE832 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				847F2C31D04B96D6791BD3A8 /* BaselineMetrics.swift in Sources */,
+				E23361B848D9A0C13BEAD98E /* ContentView.swift in Sources */,
+				DE50681D576FF429B373D8B4 /* DailyHealthRecord.swift in Sources */,
+				4BDC34E165C7BC0888119FC6 /* DisclaimerBanner.swift in Sources */,
+				8F103AE46EE794202CCD3F01 /* ExperimentManager.swift in Sources */,
+				F0A68148A35316B718442A3D /* ExperimentSelectionView.swift in Sources */,
+				1D5A8EB1B74AE348DAC74D7B /* ExperimentTag.swift in Sources */,
+				CFF9565D224D78105F2F2B93 /* EyeFocusTestManager.swift in Sources */,
+				CC3CB10DF16E37AD14041107 /* EyeFocusTestResult.swift in Sources */,
+				3784F67C4B94D5C9B2007A57 /* EyeFocusTestView.swift in Sources */,
+				AF984A40D808741610F3A0B9 /* HealthDashboardView.swift in Sources */,
+				F846A2E9416670B86A30D586 /* HealthKitManager.swift in Sources */,
+				50B794B3491D9347698028C0 /* HealthPermissionView.swift in Sources */,
+				662ECFF61DF2D51F3F010ACC /* InsightReportView.swift in Sources */,
+				4F97D65B4A3E3B76633B40AD /* LocalStorageManager.swift in Sources */,
+				4D649D9AA49CD9003C881720 /* MetricCard.swift in Sources */,
+				A0B4391F7E723CCE8E6C7B20 /* OnboardingView.swift in Sources */,
+				1DDFC017FA106A93E0F23259 /* SettingsView.swift in Sources */,
+				FB707DA5E3A071DCB72A0E15 /* VitalLensApp.swift in Sources */,
+				C06E9B3EC8A4827803F4DA4F /* WellnessDeltaResult.swift in Sources */,
+				9D460879A073B2B3E66E5041 /* WellnessScoreEngine.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		73FA6C64670BB6E29816B113 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 407A542F69BFC7DB9CDCBF2A /* VitalLens */;
+			targetProxy = 442CA23B9FF7D73C6D12A474 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		2E0F9AFE82FF4C96914AF10B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = VitalLens/VitalLens.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = VitalLens/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.vitallens.app;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		6943B7BD4AD947795CA6132F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = VitalLens/VitalLens.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = VitalLens/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.vitallens.app;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		6F42164A987C447B7E1ACAB3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.vitallens.app.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/VitalLens.app/VitalLens";
+			};
+			name = Release;
+		};
+		767506AEE49DD6022129A222 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Debug;
+		};
+		8DAE05F37C8DA0E645FDF0CE /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.vitallens.app.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/VitalLens.app/VitalLens";
+			};
+			name = Debug;
+		};
+		96BAAE1AE59288C074E27ABA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		2A492350BDB4F1A321613EEA /* Build configuration list for PBXNativeTarget "VitalLens" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6943B7BD4AD947795CA6132F /* Debug */,
+				2E0F9AFE82FF4C96914AF10B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		3CFCC26BF837070B4B7FABB1 /* Build configuration list for PBXProject "VitalLens" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				767506AEE49DD6022129A222 /* Debug */,
+				96BAAE1AE59288C074E27ABA /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C4A3507E99D6AC418979DE36 /* Build configuration list for PBXNativeTarget "VitalLensTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8DAE05F37C8DA0E645FDF0CE /* Debug */,
+				6F42164A987C447B7E1ACAB3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = B3C0EF2ADC8C56393EB0BB83 /* Project object */;
+}

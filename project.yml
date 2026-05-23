@@ -1,0 +1,61 @@
+name: VitalLens
+options:
+  bundleIdPrefix: com.vitallens
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+
+targets:
+  VitalLens:
+    type: application
+    platform: iOS
+    sources:
+      - path: VitalLens
+        excludes:
+          - Info.plist
+          - MockData
+      - path: VitalLens/MockData
+        buildPhase: resources
+        type: folder
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.vitallens.app
+        INFOPLIST_FILE: VitalLens/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MACCATALYST: NO
+    entitlements:
+      path: VitalLens/VitalLens.entitlements
+      properties:
+        com.apple.developer.healthkit: true
+        com.apple.developer.healthkit.access: []
+
+  VitalLensTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: VitalLensTests
+    dependencies:
+      - target: VitalLens
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.vitallens.app.tests
+
+schemes:
+  VitalLens:
+    build:
+      targets:
+        VitalLens: all
+        VitalLensTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - VitalLensTests

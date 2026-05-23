@@ -1,0 +1,12 @@
+{
+  "_comment": "Mock data for simulator. Day offsets are relative to today (0 = today). Edit freely.",
+  "days": [
+    { "dayOffset": -6, "restingHeartRateBPM": 62, "hrvMs": 58, "steps": 8421, "activeEnergyKcal": 412, "sleepHours": 7.4 },
+    { "dayOffset": -5, "restingHeartRateBPM": 64, "hrvMs": 55, "steps": 7102, "activeEnergyKcal": 368, "sleepHours": 6.9 },
+    { "dayOffset": -4, "restingHeartRateBPM": 61, "hrvMs": 62, "steps": 10250, "activeEnergyKcal": 495, "sleepHours": 7.8 },
+    { "dayOffset": -3, "restingHeartRateBPM": 65, "hrvMs": 51, "steps": 5980, "activeEnergyKcal": 290, "sleepHours": 6.2 },
+    { "dayOffset": -2, "restingHeartRateBPM": 60, "hrvMs": 66, "steps": 11540, "activeEnergyKcal": 540, "sleepHours": 8.1 },
+    { "dayOffset": -1, "restingHeartRateBPM": 63, "hrvMs": 60, "steps": 9342, "activeEnergyKcal": 445, "sleepHours": 7.5 },
+    { "dayOffset":  0, "restingHeartRateBPM": 62, "hrvMs": 64, "steps": 6210, "activeEnergyKcal": 305, "sleepHours": 7.2 }
+  ]
+}
