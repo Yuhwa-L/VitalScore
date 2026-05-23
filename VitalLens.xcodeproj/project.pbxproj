@@ -25,6 +25,7 @@
 		A0B4391F7E723CCE8E6C7B20 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF78C284C6842C145F12BD9F /* OnboardingView.swift */; };
 		AF984A40D808741610F3A0B9 /* HealthDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 819D61137058BB999B610171 /* HealthDashboardView.swift */; };
 		C06E9B3EC8A4827803F4DA4F /* WellnessDeltaResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C5833DB3D630E70BB16CC0C /* WellnessDeltaResult.swift */; };
+		C0A5E7D23F9B4A6D8E1C2B30 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A9E4F1C7B2D84A6E9C3F5012 /* Assets.xcassets */; };
 		C0D718EB23140C167D462BF2 /* MockData in Resources */ = {isa = PBXBuildFile; fileRef = 7EECF40332F7EB3522328034 /* MockData */; };
 		CC3CB10DF16E37AD14041107 /* EyeFocusTestResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EDA281E6243DFDC411B6B97 /* EyeFocusTestResult.swift */; };
 		CFF9565D224D78105F2F2B93 /* EyeFocusTestManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E2E7C1F9F0C46041F947453 /* EyeFocusTestManager.swift */; };
@@ -67,6 +68,7 @@
 		91BBCAA7EA33D22FBD0C2783 /* ExperimentManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExperimentManager.swift; sourceTree = "<group>"; };
 		94892B11FF44D94587A58895 /* LocalStorageManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalStorageManagerTests.swift; sourceTree = "<group>"; };
 		A37B144DF0A9FEFA1665043C /* VitalLens.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = VitalLens.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A9E4F1C7B2D84A6E9C3F5012 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		AE69B47AB0B05E0843B3723B /* HealthPermissionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthPermissionView.swift; sourceTree = "<group>"; };
 		AF78C284C6842C145F12BD9F /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		B4F0C270BF72D5D94C53391C /* InsightReportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightReportView.swift; sourceTree = "<group>"; };
@@ -161,6 +163,7 @@
 		C601A7FB4C18BB3349C192A9 /* VitalLens */ = {
 			isa = PBXGroup;
 			children = (
+				A9E4F1C7B2D84A6E9C3F5012 /* Assets.xcassets */,
 				25BC45BA1F25C5056F25D2A2 /* ContentView.swift */,
 				7EECF40332F7EB3522328034 /* MockData */,
 				3133DE9FC9C075676FD6146C /* VitalLens.entitlements */,
@@ -255,6 +258,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C0A5E7D23F9B4A6D8E1C2B30 /* Assets.xcassets in Resources */,
 				C0D718EB23140C167D462BF2 /* MockData in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
