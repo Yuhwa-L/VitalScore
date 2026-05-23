@@ -1,10 +1,10 @@
 import XCTest
-@testable import VitalLens
+@testable import VitalScore
 
 final class LocalStorageManagerTests: XCTestCase {
     private var defaults: UserDefaults!
     private var storage: LocalStorageManager!
-    private let suite = "com.vitallens.tests"
+    private let suite = "com.vitalscore.tests"
 
     override func setUp() {
         super.setUp()

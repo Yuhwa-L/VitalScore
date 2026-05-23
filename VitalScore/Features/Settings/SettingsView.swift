@@ -47,7 +47,7 @@ struct SettingsView: View {
                 }
 
                 Section("About") {
-                    LabeledContent("App", value: "VitalLens")
+                    LabeledContent("App", value: "VitalScore")
                     LabeledContent("Version", value: Bundle.main.versionString)
                     LabeledContent("Build", value: Bundle.main.buildString)
                     Link("Privacy Policy", destination: URL(string: "https://example.com/privacy")!)

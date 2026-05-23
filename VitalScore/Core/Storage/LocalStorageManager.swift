@@ -1,10 +1,10 @@
 import Foundation
 
 final class LocalStorageManager: ObservableObject {
-    static let recordsKey = "com.vitallens.records.v1"
-    static let experimentKey = "com.vitallens.experiment.v1"
-    static let onboardingKey = "com.vitallens.onboardingComplete.v1"
-    static let healthPermissionKey = "com.vitallens.healthPermissionGranted.v1"
+    static let recordsKey = "com.vitalscore.records.v1"
+    static let experimentKey = "com.vitalscore.experiment.v1"
+    static let onboardingKey = "com.vitalscore.onboardingComplete.v1"
+    static let healthPermissionKey = "com.vitalscore.healthPermissionGranted.v1"
 
     private let defaults: UserDefaults
 

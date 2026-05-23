@@ -13,7 +13,7 @@ final class HealthKitManager: ObservableObject {
     @Published var todayActiveEnergy: Double?
     @Published var lastNightSleepHours: Double?
 
-    private let permissionKey = "com.vitallens.healthPermissionGranted.v1"
+    private let permissionKey = "com.vitalscore.healthPermissionGranted.v1"
 
     init() {
         hasRequestedAuthorization = UserDefaults.standard.bool(forKey: permissionKey)

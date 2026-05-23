@@ -1,5 +1,5 @@
 import XCTest
-@testable import VitalLens
+@testable import VitalScore
 
 final class EyeFocusScoringTests: XCTestCase {
     func test_perfectPerformance_scores100() {

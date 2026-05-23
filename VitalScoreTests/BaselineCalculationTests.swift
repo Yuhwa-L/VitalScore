@@ -1,5 +1,5 @@
 import XCTest
-@testable import VitalLens
+@testable import VitalScore
 
 final class BaselineCalculationTests: XCTestCase {
     private let engine = WellnessScoreEngine()

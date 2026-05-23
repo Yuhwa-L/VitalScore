@@ -1,0 +1,21 @@
+# Xcode build artifacts
+build/
+DerivedData/
+*.xcuserstate
+**/xcuserdata/
+
+# Generated Xcode project (regenerate with `xcodegen generate`)
+*.xcodeproj/
+
+# macOS
+.DS_Store
+
+# Swift Package Manager
+.swiftpm/
+.build/
+Packages/
+Package.pins
+Package.resolved
+
+# CocoaPods (unused, but defensive)
+Pods/

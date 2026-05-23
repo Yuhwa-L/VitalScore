@@ -6,7 +6,7 @@ struct OnboardingView: View {
     var body: some View {
         VStack(spacing: 24) {
             Spacer()
-            Text("VitalLens")
+            Text("VitalScore")
                 .font(.largeTitle)
                 .fontWeight(.bold)
             Text("Turn Apple Health data into personal lifestyle experiments. Combine sleep, heart, activity, and focus signals into a Wellness Delta Score against your own baseline.")

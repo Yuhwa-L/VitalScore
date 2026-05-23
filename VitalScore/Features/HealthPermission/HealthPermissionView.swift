@@ -19,7 +19,7 @@ struct HealthPermissionView: View {
             Text("Connect Apple Health")
                 .font(.title)
                 .fontWeight(.bold)
-            Text("VitalLens reads available data with your permission. Each metric is optional — the app works with whatever you allow.")
+            Text("VitalScore reads available data with your permission. Each metric is optional — the app works with whatever you allow.")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
             ScrollView {
@@ -86,7 +86,7 @@ private struct MockHealthAuthorizationSheet: View {
                 header
                 ScrollView {
                     VStack(alignment: .leading, spacing: 24) {
-                        Text("Allow “VitalLens” to access your health data in the categories below.")
+                        Text("Allow “VitalScore” to access your health data in the categories below.")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                             .padding(.horizontal)
@@ -94,7 +94,7 @@ private struct MockHealthAuthorizationSheet: View {
                         SectionHeader("Turn On All")
                         turnOnAllRow
 
-                        SectionHeader("Allow “VitalLens” to Read")
+                        SectionHeader("Allow “VitalScore” to Read")
                         VStack(spacing: 0) {
                             ForEach(Array(metrics.enumerated()), id: \.element.name) { index, metric in
                                 row(for: metric.name)
@@ -112,7 +112,7 @@ private struct MockHealthAuthorizationSheet: View {
                             .foregroundColor(.secondary)
                             .padding(.horizontal)
                             .padding(.top, 8)
-                        Text("VitalLens reads heart rate, sleep, steps, and activity data to show wellness trends over time. This is not medical advice.")
+                        Text("VitalScore reads heart rate, sleep, steps, and activity data to show wellness trends over time. This is not medical advice.")
                             .font(.footnote)
                             .padding()
                             .frame(maxWidth: .infinity, alignment: .leading)

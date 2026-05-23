@@ -19,11 +19,11 @@
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>NSHealthShareUsageDescription</key>
-	<string>VitalLens reads your heart rate, sleep, steps, and activity data to show wellness trends over time. This is not medical advice.</string>
+	<string>VitalScore reads your heart rate, sleep, steps, and activity data to show wellness trends over time. This is not medical advice.</string>
 	<key>NSHealthUpdateUsageDescription</key>
-	<string>VitalLens does not write to Health, but iOS requires this string when HealthKit is enabled.</string>
+	<string>VitalScore does not write to Health, but iOS requires this string when HealthKit is enabled.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>VitalLens uses the camera only for the optional eye-focus test. The test is for wellness trends and is not a medical diagnosis.</string>
+	<string>VitalScore uses the camera only for the optional eye-focus test. The test is for wellness trends and is not a medical diagnosis.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UIApplicationSceneManifest</key>

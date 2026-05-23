@@ -1,6 +1,6 @@
 import XCTest
 import HealthKit
-@testable import VitalLens
+@testable import VitalScore
 
 final class SleepDurationParsingTests: XCTestCase {
     func test_singleAsleepSample_totalsCorrectDuration() throws {

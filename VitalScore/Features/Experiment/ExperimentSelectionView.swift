@@ -18,7 +18,7 @@ struct ExperimentSelectionView: View {
                 Text("Choose Your Experiment")
                     .font(.title)
                     .fontWeight(.bold)
-                Text("Pick one lifestyle change to track. VitalLens compares your metrics to your own baseline during this experiment.")
+                Text("Pick one lifestyle change to track. VitalScore compares your metrics to your own baseline during this experiment.")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
 
