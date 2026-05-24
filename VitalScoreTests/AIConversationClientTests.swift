@@ -147,7 +147,9 @@ final class AIConversationClientTests: XCTestCase {
             endpoint: endpoint,
             model: "unit-model",
             provider: "openai",
-            session: session
+            session: session,
+            directOpenAIAPIKey: "unit-test-key",
+            directOpenAIModel: "unit-model"
         )
     }
 
