@@ -1,21 +1,27 @@
 import Foundation
 
 struct WellnessScoreEngine {
-    static let sleepWeight = 0.30
-    static let restingHeartRateWeight = 0.25
-    static let hrvWeight = 0.20
-    static let eyeFocusWeight = 0.15
-    static let stepsWeight = 0.10
+    static let sleepWeight = 0.22
+    static let restingHeartRateWeight = 0.18
+    static let hrvWeight = 0.18
+    static let stepsWeight = 0.12
+    static let eyeFocusWeight = 0.12
+    static let voiceWeight = 0.10
+    static let selfReportedEnergyWeight = 0.03
+    static let selfReportedStressWeight = 0.03
+    static let selfReportedSleepQualityWeight = 0.02
 
     func buildBaseline(from records: [DailyHealthRecord], asOf reference: Date = Date(), window: Int = 7) -> BaselineMetrics {
-        guard let cutoff = Calendar.current.date(byAdding: .day, value: -window, to: reference) else {
+        let calendar = Calendar.current
+        let endOfBaseline = calendar.startOfDay(for: reference)
+        guard let cutoff = calendar.date(byAdding: .day, value: -window, to: endOfBaseline) else {
             return .empty
         }
-        let scoped = records.filter { $0.date >= cutoff && $0.date < reference }
+        let scoped = records.filter { $0.date >= cutoff && $0.date < endOfBaseline }
         if scoped.isEmpty {
             return BaselineMetrics(
                 startDate: cutoff,
-                endDate: reference,
+                endDate: endOfBaseline,
                 averageSleepHours: nil,
                 averageRestingHeartRateBPM: nil,
                 averageHRVMs: nil,
@@ -23,12 +29,16 @@ struct WellnessScoreEngine {
                 averageEyeFocusScore: nil,
                 averageGazeScore: nil,
                 averageGazeAccuracyPx: nil,
-                averageBalanceScore: nil
+                averageBalanceScore: nil,
+                averageVoiceScore: nil,
+                averageSelfReportedEnergy: nil,
+                averageSelfReportedStress: nil,
+                averageSelfReportedSleepQuality: nil
             )
         }
         return BaselineMetrics(
             startDate: cutoff,
-            endDate: reference,
+            endDate: endOfBaseline,
             averageSleepHours: Self.average(scoped.compactMap { $0.sleepHours }),
             averageRestingHeartRateBPM: Self.average(scoped.compactMap { $0.restingHeartRateBPM }),
             averageHRVMs: Self.average(scoped.compactMap { $0.hrvMs }),
@@ -36,7 +46,11 @@ struct WellnessScoreEngine {
             averageEyeFocusScore: Self.average(scoped.compactMap { $0.eyeFocusScore }),
             averageGazeScore: Self.average(scoped.compactMap { $0.gazeScore }),
             averageGazeAccuracyPx: Self.average(scoped.compactMap { $0.gazeAccuracyPx }),
-            averageBalanceScore: Self.average(scoped.compactMap { $0.balanceScore })
+            averageBalanceScore: Self.average(scoped.compactMap { $0.balanceScore }),
+            averageVoiceScore: Self.average(scoped.compactMap { $0.voiceScore }),
+            averageSelfReportedEnergy: Self.average(scoped.compactMap { $0.selfReportedEnergy.map(Double.init) }),
+            averageSelfReportedStress: Self.average(scoped.compactMap { $0.selfReportedStress.map(Double.init) }),
+            averageSelfReportedSleepQuality: Self.average(scoped.compactMap { $0.selfReportedSleepQuality.map(Double.init) })
         )
     }
 
@@ -46,50 +60,98 @@ struct WellnessScoreEngine {
         var availableCount = 0
         var positiveCount = 0
 
-        if let todaySleep = today.sleepHours, let baseSleep = baseline.averageSleepHours, baseSleep > 0 {
-            let delta = (todaySleep - baseSleep) / baseSleep
-            let metricScore = max(-100, min(100, delta * 100))
-            weightedScore += metricScore * Self.sleepWeight
-            totalWeight += Self.sleepWeight
-            availableCount += 1
-            if metricScore > 0 { positiveCount += 1 }
-        }
-
-        if let todayRHR = today.restingHeartRateBPM, let baseRHR = baseline.averageRestingHeartRateBPM, baseRHR > 0 {
-            let delta = (baseRHR - todayRHR) / baseRHR
-            let metricScore = max(-100, min(100, delta * 100))
-            weightedScore += metricScore * Self.restingHeartRateWeight
-            totalWeight += Self.restingHeartRateWeight
-            availableCount += 1
-            if metricScore > 0 { positiveCount += 1 }
-        }
-
-        if let todayHRV = today.hrvMs, let baseHRV = baseline.averageHRVMs, baseHRV > 0 {
-            let delta = (todayHRV - baseHRV) / baseHRV
-            let metricScore = max(-100, min(100, delta * 100))
-            weightedScore += metricScore * Self.hrvWeight
-            totalWeight += Self.hrvWeight
-            availableCount += 1
-            if metricScore > 0 { positiveCount += 1 }
-        }
-
-        if let todayFocus = today.eyeFocusScore, let baseFocus = baseline.averageEyeFocusScore, baseFocus > 0 {
-            let delta = (todayFocus - baseFocus) / baseFocus
-            let metricScore = max(-100, min(100, delta * 100))
-            weightedScore += metricScore * Self.eyeFocusWeight
-            totalWeight += Self.eyeFocusWeight
-            availableCount += 1
-            if metricScore > 0 { positiveCount += 1 }
-        }
-
-        if let todaySteps = today.stepCount, let baseSteps = baseline.averageStepCount, baseSteps > 0 {
-            let delta = (todaySteps - baseSteps) / baseSteps
-            let metricScore = max(-100, min(100, delta * 100))
-            weightedScore += metricScore * Self.stepsWeight
-            totalWeight += Self.stepsWeight
-            availableCount += 1
-            if metricScore > 0 { positiveCount += 1 }
-        }
+        addPercentMetric(
+            today: today.sleepHours,
+            baseline: baseline.averageSleepHours,
+            weight: Self.sleepWeight,
+            fullScaleChange: 0.20,
+            weightedScore: &weightedScore,
+            totalWeight: &totalWeight,
+            availableCount: &availableCount,
+            positiveCount: &positiveCount
+        )
+        addPercentMetric(
+            today: today.restingHeartRateBPM,
+            baseline: baseline.averageRestingHeartRateBPM,
+            weight: Self.restingHeartRateWeight,
+            fullScaleChange: 0.12,
+            inverted: true,
+            weightedScore: &weightedScore,
+            totalWeight: &totalWeight,
+            availableCount: &availableCount,
+            positiveCount: &positiveCount
+        )
+        addPercentMetric(
+            today: today.hrvMs,
+            baseline: baseline.averageHRVMs,
+            weight: Self.hrvWeight,
+            fullScaleChange: 0.30,
+            weightedScore: &weightedScore,
+            totalWeight: &totalWeight,
+            availableCount: &availableCount,
+            positiveCount: &positiveCount
+        )
+        addPercentMetric(
+            today: today.stepCount,
+            baseline: baseline.averageStepCount,
+            weight: Self.stepsWeight,
+            fullScaleChange: 0.50,
+            weightedScore: &weightedScore,
+            totalWeight: &totalWeight,
+            availableCount: &availableCount,
+            positiveCount: &positiveCount
+        )
+        addPointMetric(
+            today: today.eyeFocusScore,
+            baseline: baseline.averageEyeFocusScore,
+            weight: Self.eyeFocusWeight,
+            fullScalePoints: 20,
+            weightedScore: &weightedScore,
+            totalWeight: &totalWeight,
+            availableCount: &availableCount,
+            positiveCount: &positiveCount
+        )
+        addPointMetric(
+            today: today.voiceScore,
+            baseline: baseline.averageVoiceScore,
+            weight: Self.voiceWeight,
+            fullScalePoints: 20,
+            weightedScore: &weightedScore,
+            totalWeight: &totalWeight,
+            availableCount: &availableCount,
+            positiveCount: &positiveCount
+        )
+        addPointMetric(
+            today: today.selfReportedEnergy.map(Double.init),
+            baseline: baseline.averageSelfReportedEnergy,
+            weight: Self.selfReportedEnergyWeight,
+            fullScalePoints: 3,
+            weightedScore: &weightedScore,
+            totalWeight: &totalWeight,
+            availableCount: &availableCount,
+            positiveCount: &positiveCount
+        )
+        addPointMetric(
+            today: today.selfReportedStress.map(Double.init),
+            baseline: baseline.averageSelfReportedStress,
+            weight: Self.selfReportedStressWeight,
+            fullScalePoints: 3,
+            inverted: true,
+            weightedScore: &weightedScore,
+            totalWeight: &totalWeight,
+            availableCount: &availableCount,
+            positiveCount: &positiveCount
+        )
+        addPointMetric(
+            today: today.selfReportedSleepQuality.map(Double.init),
+            baseline: baseline.averageSelfReportedSleepQuality,
+            weight: Self.selfReportedSleepQualityWeight,
+            fullScalePoints: 3,
+            weightedScore: &weightedScore,
+            totalWeight: &totalWeight,
+            availableCount: &availableCount,
+            positiveCount: &positiveCount
+        )
 
         guard totalWeight > 0 else {
             return WellnessDeltaResult(
@@ -102,11 +164,11 @@ struct WellnessScoreEngine {
         }
 
         let normalized = weightedScore / totalWeight
-        let finalScore = Int(max(-20, min(20, normalized / 5)))
+        let finalScore = Int(max(-20, min(20, (normalized * 20).rounded())))
 
         let confidence: String
-        if totalWeight >= 0.75 { confidence = "High" }
-        else if totalWeight >= 0.45 { confidence = "Medium" }
+        if totalWeight >= 0.70 { confidence = "High" }
+        else if totalWeight >= 0.40 { confidence = "Medium" }
         else { confidence = "Low" }
 
         let insight = generateInsightText(
@@ -186,12 +248,73 @@ struct WellnessScoreEngine {
             lines.append("Your wellness markers are \(direction) during your \(tag) experiment.")
         }
         lines.append("This is a wellness trend, not a diagnosis, and does not show causation.")
-        lines.append("Confidence: \(confidence) (\(availableCount) of 5 metrics available).")
+        lines.append("Confidence: \(confidence) (\(availableCount) of 9 metrics available).")
         return lines.joined(separator: "\n")
     }
 
     static func average(_ values: [Double]) -> Double? {
         guard !values.isEmpty else { return nil }
         return values.reduce(0, +) / Double(values.count)
+    }
+
+    private func addPercentMetric(
+        today: Double?,
+        baseline: Double?,
+        weight: Double,
+        fullScaleChange: Double,
+        inverted: Bool = false,
+        weightedScore: inout Double,
+        totalWeight: inout Double,
+        availableCount: inout Int,
+        positiveCount: inout Int
+    ) {
+        guard let today, let baseline, baseline > 0, fullScaleChange > 0 else { return }
+        let delta = inverted ? (baseline - today) / baseline : (today - baseline) / baseline
+        addNormalizedMetric(
+            delta / fullScaleChange,
+            weight: weight,
+            weightedScore: &weightedScore,
+            totalWeight: &totalWeight,
+            availableCount: &availableCount,
+            positiveCount: &positiveCount
+        )
+    }
+
+    private func addPointMetric(
+        today: Double?,
+        baseline: Double?,
+        weight: Double,
+        fullScalePoints: Double,
+        inverted: Bool = false,
+        weightedScore: inout Double,
+        totalWeight: inout Double,
+        availableCount: inout Int,
+        positiveCount: inout Int
+    ) {
+        guard let today, let baseline, fullScalePoints > 0 else { return }
+        let delta = inverted ? baseline - today : today - baseline
+        addNormalizedMetric(
+            delta / fullScalePoints,
+            weight: weight,
+            weightedScore: &weightedScore,
+            totalWeight: &totalWeight,
+            availableCount: &availableCount,
+            positiveCount: &positiveCount
+        )
+    }
+
+    private func addNormalizedMetric(
+        _ rawScore: Double,
+        weight: Double,
+        weightedScore: inout Double,
+        totalWeight: inout Double,
+        availableCount: inout Int,
+        positiveCount: inout Int
+    ) {
+        let metricScore = max(-1, min(1, rawScore))
+        weightedScore += metricScore * weight
+        totalWeight += weight
+        availableCount += 1
+        if metricScore > 0 { positiveCount += 1 }
     }
 }

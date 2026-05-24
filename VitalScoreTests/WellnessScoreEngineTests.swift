@@ -46,12 +46,12 @@ final class WellnessScoreEngineTests: XCTestCase {
         XCTAssertEqual(result.confidence, "Low")
     }
 
-    func test_zeroBaselineValues_doNotCrash() {
+    func test_zeroPercentBaselineValues_skipPercentMetricsButKeepPointMetrics() {
         let baseline = baseline(sleep: 0, rhr: 0, hrv: 0, steps: 0, focus: 0)
         let today = record(sleep: 7.5, rhr: 60, hrv: 50, steps: 8000, focus: 80)
         let result = engine.calculate(today: today, baseline: baseline)
-        XCTAssertEqual(result.availableMetricCount, 0)
-        XCTAssertEqual(result.score, 0)
+        XCTAssertEqual(result.availableMetricCount, 1)
+        XCTAssertEqual(result.score, 20)
     }
 
     func test_noMetricsAvailable_returnsZeroScoreLowConfidence() {

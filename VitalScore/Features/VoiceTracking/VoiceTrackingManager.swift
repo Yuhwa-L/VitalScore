@@ -33,6 +33,11 @@ final class VoiceTrackingManager: ObservableObject {
     @Published var elapsedSeconds: TimeInterval = 0
     @Published var currentTaskIndex = 0
     @Published var currentTranscript = ""
+    /// True from the moment the user taps Send Now until the recogniser
+    /// finalises its transcript. UI uses this to swap controls for a spinner
+    /// while the on-device pipeline drains.
+    @Published var isFinalizingTranscript = false
+    static let conversationFinalizationDelaySeconds: TimeInterval = 2
     @Published private(set) var conversationExchanges: [VoiceConversationExchange] = []
     @Published private(set) var conversationSummary: VoiceConversationSummary?
     @Published private(set) var tasks = VoiceAIConversationBuilder.fixedPromptTasks
@@ -47,11 +52,8 @@ final class VoiceTrackingManager: ObservableObject {
         VoiceRawAudioDebugExportSettings.rawAudioRetentionPolicy
     }
     static let aiConversationMaxTurns = VoiceAIConversationBuilder.advancedConversationQuestionCount
-    static let aiConversationTurnDurationSeconds: TimeInterval = 30
-    static let aiConversationAutoSendDelaySeconds: TimeInterval = 2.0
-    static let aiConversationMinimumReplySeconds: TimeInterval = 2.5
-    static let aiConversationMinimumAutoSendWordCount = 3
-    static let aiConversationSpeechDbThreshold = -48.0
+    static let aiConversationTurnDurationSeconds = VoiceAIConversationBuilder.advancedConversationTurnTargetSeconds
+    static let aiConversationTotalDurationSeconds = VoiceAIConversationBuilder.advancedConversationTotalTargetSeconds
     static let speechContextualStrings = [
         "VitalScore",
         "energy",
@@ -64,6 +66,15 @@ final class VoiceTrackingManager: ObservableObject {
         "workload",
         "hydration",
         "hydrated",
+        "caffeine",
+        "coffee",
+        "meditation",
+        "breathing",
+        "screen time",
+        "workout",
+        "exercise",
+        "meeting",
+        "commute",
         "routine",
         "environment",
         "calm",
@@ -93,16 +104,26 @@ final class VoiceTrackingManager: ObservableObject {
     private var sessionChannels = 1
     private var sessionMicrophoneRoute = "unknown"
     private var spokenPromptIds: Set<String> = []
-    private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
-    private var speechRecognitionRequest: SFSpeechAudioBufferRecognitionRequest?
-    private var speechRecognitionTask: SFSpeechRecognitionTask?
+    private lazy var appleSpeechTranscriptionProvider = AppleSpeechTranscriptionProvider(
+        mode: Bundle.main.speechRecognitionMode,
+        contextualStrings: Self.speechContextualStrings
+    )
+    private lazy var appleSpeechAnalyzerProvider: VoiceSpeechTranscriptionProvider? = {
+        if #available(iOS 26.0, *) {
+            return AppleSpeechAnalyzerTranscriptionProvider()
+        }
+        return nil
+    }()
+    #if canImport(FluidAudio)
+    private lazy var fluidAudioSpeechTranscriptionProvider = FluidAudioSpeechTranscriptionProvider()
+    #endif
+    private var speechTranscriptionProvider: VoiceSpeechTranscriptionProvider?
     private var speechRecognitionGeneration = 0
-    private var speechPauseTimer: Timer?
+    private var activeSpeechTranscriptionSource = "none"
+    private var isCompletingConversationTurn = false
     private var conversationRecordedSeconds: TimeInterval = 0
     private var conversationTurnStartedAt: Date?
     private var conversationTurnFrameStartIndex = 0
-    private var lastConversationSpeechAt: Date?
-    private var conversationSpeechDetected = false
     private let rawAudioDebugExporter = VoiceRawAudioDebugExporter()
 
     func start(conversationPlan: VoiceAIConversationPlan? = nil) {
@@ -126,7 +147,11 @@ final class VoiceTrackingManager: ObservableObject {
                 guard let self = self else { return }
                 if granted {
                     if self.tasks.contains(where: { $0.type == .guidedConversation }) {
-                        self.requestSpeechRecognitionPermission()
+                        if self.shouldRequestSpeechRecognitionPermissionBeforeConversation {
+                            self.requestSpeechRecognitionPermission()
+                        } else {
+                            self.beginSession()
+                        }
                     } else {
                         self.startCountdown()
                     }
@@ -149,9 +174,20 @@ final class VoiceTrackingManager: ObservableObject {
         case .running where currentTask.allowsEarlyFinish:
             completeCurrentTaskAndAdvance()
         case .aiListening where currentTask.allowsEarlyFinish:
-            completeCurrentConversationTurn()
+            scheduleConversationTurnFinalization()
         default:
             return
+        }
+    }
+
+    /// Hold the audio + STT pipeline open for a brief settling window after the
+    /// user taps Send Now, giving the recognizer time to finalise any in-flight
+    /// tokens before we hand the transcript to GPT.
+    private func scheduleConversationTurnFinalization() {
+        guard !isCompletingConversationTurn, !isFinalizingTranscript else { return }
+        isFinalizingTranscript = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.conversationFinalizationDelaySeconds) { [weak self] in
+            self?.completeCurrentConversationTurn()
         }
     }
 
@@ -161,8 +197,7 @@ final class VoiceTrackingManager: ObservableObject {
         else { return }
 
         let resetAt = Date()
-        speechPauseTimer?.invalidate()
-        speechPauseTimer = nil
+        isFinalizingTranscript = false
         taskTimer?.invalidate()
         stopSpeechRecognition(cancel: true)
         rawAudioDebugExporter.finishActiveSample(
@@ -179,8 +214,6 @@ final class VoiceTrackingManager: ObservableObject {
         liveLevel = 0
         elapsedSeconds = 0
         conversationTurnStartedAt = resetAt
-        lastConversationSpeechAt = nil
-        conversationSpeechDetected = false
         conversationTurnFrameStartIndex = currentFrames.count
         rawAudioDebugExporter.beginSample(task: task, turnIndex: turnIndex, startedAt: resetAt)
         phase = .aiListening(task, turnIndex, aiPrompt)
@@ -244,22 +277,50 @@ final class VoiceTrackingManager: ObservableObject {
         }
     }
 
+    private var shouldRequestSpeechRecognitionPermissionBeforeConversation: Bool {
+        // SpeechAnalyzer uses the same Speech Recognition authorization as
+        // SFSpeechRecognizer, so request it up front when the analyzer will be used.
+        if #available(iOS 26.0, *),
+           Bundle.main.voiceTranscriptionProviderPreference != .appleSpeech,
+           appleSpeechAnalyzerProvider != nil {
+            return true
+        }
+        switch Bundle.main.voiceTranscriptionProviderPreference {
+        case .appleSpeech:
+            return true
+        case .fluidAudio:
+            #if canImport(FluidAudio)
+            return false
+            #else
+            return true
+            #endif
+        }
+    }
+
     private func requestSpeechRecognitionPermission() {
-        SFSpeechRecognizer.requestAuthorization { [weak self] status in
-            DispatchQueue.main.async {
-                guard let self = self else { return }
-                switch status {
-                case .authorized:
-                    if self.currentTask.type == .guidedConversation {
-                        self.beginSession()
-                    } else {
-                        self.startCountdown()
-                    }
-                case .denied, .restricted, .notDetermined:
-                    self.phase = .failed("Speech recognition access is required for the AI conversation.")
-                @unknown default:
-                    self.phase = .failed("Speech recognition is unavailable on this device.")
+        requestAppleSpeechRecognitionPermission { [weak self] granted, message in
+            guard let self else { return }
+            if granted {
+                if self.currentTask.type == .guidedConversation {
+                    self.beginSession()
+                } else {
+                    self.startCountdown()
                 }
+            } else {
+                self.phase = .failed(message ?? "Speech recognition is required for the AI conversation.")
+            }
+        }
+    }
+
+    private func requestAppleSpeechRecognitionPermission(completion: @escaping (Bool, String?) -> Void) {
+        AppleSpeechTranscriptionProvider.requestAuthorization { status in
+            switch status {
+            case .authorized:
+                completion(true, nil)
+            case .denied, .restricted, .notDetermined:
+                completion(false, "Speech recognition access is required for the Apple Speech fallback.")
+            @unknown default:
+                completion(false, "Speech recognition is unavailable on this device.")
             }
         }
     }
@@ -298,7 +359,7 @@ final class VoiceTrackingManager: ObservableObject {
                 isInputTapInstalled = false
             }
             input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
-                self?.speechRecognitionRequest?.append(buffer)
+                self?.speechTranscriptionProvider?.append(buffer)
                 self?.rawAudioDebugExporter.write(buffer)
                 guard let frame = Self.frameSummary(from: buffer) else { return }
                 DispatchQueue.main.async {
@@ -363,15 +424,34 @@ final class VoiceTrackingManager: ObservableObject {
         conversationRecordedSeconds = 0
         conversationTurnStartedAt = nil
         currentTranscript = ""
+        preparePreferredSpeechTranscriptionProvider()
         phase = .aiSpeaking(currentTask, 1, currentTask.instruction, true)
+    }
+
+    /// Kick off background model load so the Parakeet weights are warm by the
+    /// time the user starts a conversation. Safe to call multiple times.
+    func prewarmTranscription() {
+        preparePreferredSpeechTranscriptionProvider()
+    }
+
+    private func preparePreferredSpeechTranscriptionProvider() {
+        if #available(iOS 26.0, *),
+           Bundle.main.voiceTranscriptionProviderPreference != .appleSpeech,
+           let analyzer = appleSpeechAnalyzerProvider as? AppleSpeechAnalyzerTranscriptionProvider {
+            analyzer.prepareForUse()
+            return
+        }
+        guard Bundle.main.voiceTranscriptionProviderPreference == .fluidAudio else { return }
+        #if canImport(FluidAudio)
+        fluidAudioSpeechTranscriptionProvider.prepareForUse()
+        #endif
     }
 
     private func beginAIListeningTurn(task: VoiceTaskDefinition, turnIndex: Int, aiPrompt: String) {
         currentTranscript = ""
         conversationTurnStartedAt = Date()
+        isCompletingConversationTurn = false
         conversationTurnFrameStartIndex = currentFrames.count
-        lastConversationSpeechAt = nil
-        conversationSpeechDetected = false
         rawAudioDebugExporter.beginSample(task: task, turnIndex: turnIndex, startedAt: conversationTurnStartedAt ?? Date())
         phase = .aiListening(task, turnIndex, aiPrompt)
         startSpeechRecognition()
@@ -391,38 +471,49 @@ final class VoiceTrackingManager: ObservableObject {
 
     private func completeCurrentConversationTurn() {
         guard case .aiListening(let task, let turnIndex, let aiPrompt) = phase,
-              task.promptId == currentTask.promptId
+              task.promptId == currentTask.promptId,
+              !isCompletingConversationTurn
         else { return }
 
-        speechPauseTimer?.invalidate()
-        speechPauseTimer = nil
+        isCompletingConversationTurn = true
+        isFinalizingTranscript = false
         let completedAt = Date()
         let startedAt = conversationTurnStartedAt ?? completedAt
         let duration = max(0, completedAt.timeIntervalSince(startedAt))
-        conversationRecordedSeconds = min(currentTask.targetDurationSeconds, conversationRecordedSeconds + duration)
+        conversationRecordedSeconds = min(Self.aiConversationTotalDurationSeconds, conversationRecordedSeconds + duration)
         elapsedSeconds = conversationRecordedSeconds
 
         taskTimer?.invalidate()
         progressTimer?.invalidate()
-        stopSpeechRecognition(cancel: false)
+        let transcriptionSource = activeSpeechTranscriptionSource
         rawAudioDebugExporter.finishActiveSample(
             endedAt: completedAt,
             durationSeconds: duration
         )
 
-        let transcript = currentTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-        conversationExchanges.append(
-            VoiceConversationExchange(
-                turnIndex: turnIndex,
-                aiPrompt: aiPrompt,
-                userTranscript: transcript,
-                userResponseStartedAt: startedAt,
-                userResponseEndedAt: completedAt,
-                responseDurationSeconds: duration,
-                source: "ios_speech_recognition"
-            )
-        )
-        phase = .aiThinking(task, turnIndex, transcript)
+        stopSpeechRecognition(cancel: false) { [weak self] finalTranscript in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                let fallbackTranscript = self.currentTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+                let finishedTranscript = finalTranscript?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let transcript = (finishedTranscript?.isEmpty == false ? finishedTranscript : fallbackTranscript) ?? fallbackTranscript
+                self.currentTranscript = transcript
+                self.conversationExchanges.append(
+                    VoiceConversationExchange(
+                        turnIndex: turnIndex,
+                        aiPrompt: aiPrompt,
+                        userTranscript: transcript,
+                        userResponseStartedAt: startedAt,
+                        userResponseEndedAt: completedAt,
+                        responseDurationSeconds: duration,
+                        source: transcriptionSource
+                    )
+                )
+                self.isCompletingConversationTurn = false
+                self.phase = .aiThinking(task, turnIndex, transcript)
+            }
+        }
     }
 
     private func finishAIConversationTask() {
@@ -470,24 +561,6 @@ final class VoiceTrackingManager: ObservableObject {
         }
         currentFrames.append(frame)
         liveLevel = Self.normalizedLevel(from: frame.averagePowerDb)
-        updateConversationPauseDetection(with: frame)
-    }
-
-    private func updateConversationPauseDetection(with frame: VoiceFrameSummary) {
-        guard case .aiListening = phase else { return }
-
-        let now = Date()
-        if frame.averagePowerDb > Self.aiConversationSpeechDbThreshold {
-            lastConversationSpeechAt = now
-            conversationSpeechDetected = true
-            return
-        }
-
-        guard conversationSpeechDetected,
-              shouldAutoSubmitConversationNow(now: now)
-        else { return }
-
-        completeCurrentConversationTurn()
     }
 
     private func finishSession() {
@@ -517,118 +590,147 @@ final class VoiceTrackingManager: ObservableObject {
 
     private func startSpeechRecognition() {
         stopSpeechRecognition(cancel: true)
-        guard let speechRecognizer, speechRecognizer.isAvailable else {
-            currentTranscript = ""
-            return
-        }
-
+        currentTranscript = ""
         speechRecognitionGeneration += 1
         let generation = speechRecognitionGeneration
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        configureSpeechRecognitionRequest(request, recognizer: speechRecognizer)
-        speechRecognitionRequest = request
-        speechRecognitionTask = speechRecognizer.recognitionTask(with: request) { [weak self] result, error in
-            DispatchQueue.main.async {
-                guard let self = self,
-                      self.speechRecognitionGeneration == generation
-                else { return }
-                if let result {
-                    let transcript = Self.liveTranscriptText(from: result.bestTranscription)
-                    if !transcript.isEmpty {
-                        self.currentTranscript = transcript
-                        self.scheduleConversationAutoSendIfUseful(for: transcript)
-                    }
-                }
-                if error != nil {
-                    self.speechRecognitionRequest = nil
-                    self.speechRecognitionTask = nil
-                }
-            }
-        }
-    }
-
-    private func configureSpeechRecognitionRequest(
-        _ request: SFSpeechAudioBufferRecognitionRequest,
-        recognizer: SFSpeechRecognizer
-    ) {
-        request.shouldReportPartialResults = true
-        request.taskHint = .dictation
-        request.contextualStrings = Self.speechContextualStrings
-        request.addsPunctuation = false
-        if recognizer.supportsOnDeviceRecognition {
-            request.requiresOnDeviceRecognition = true
-        }
-    }
-
-    private static func liveTranscriptText(from transcription: SFTranscription) -> String {
-        let segmentText = transcription.segments
-            .map(\.substring)
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if !segmentText.isEmpty {
-            return segmentText
-        }
-        return transcription.formattedString.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func scheduleConversationAutoSendIfUseful(for transcript: String) {
-        guard case .aiListening = phase else { return }
-        guard Self.conversationTranscriptWordCount(transcript) >= Self.aiConversationMinimumAutoSendWordCount else { return }
-
-        speechPauseTimer?.invalidate()
-        speechPauseTimer = Timer.scheduledTimer(
-            withTimeInterval: Self.aiConversationAutoSendDelaySeconds,
-            repeats: false
-        ) { [weak self] _ in
-            DispatchQueue.main.async {
-                guard let self = self,
-                      case .aiListening = self.phase,
-                      self.shouldAutoSubmitConversationNow()
-                else { return }
-                self.completeCurrentConversationTurn()
-            }
-        }
-    }
-
-    private func shouldAutoSubmitConversationNow(now: Date = Date()) -> Bool {
-        guard conversationSpeechDetected,
-              let startedAt = conversationTurnStartedAt,
-              let lastConversationSpeechAt
-        else { return false }
-
-        return Self.shouldAutoSubmitConversationTranscript(
-            currentTranscript,
-            elapsedSinceTurnStart: now.timeIntervalSince(startedAt),
-            elapsedSinceLastSpeech: now.timeIntervalSince(lastConversationSpeechAt)
+        startTranscriptionProvider(
+            preferredSpeechTranscriptionProvider,
+            generation: generation,
+            allowsAppleFallback: true
         )
     }
 
-    static func shouldAutoSubmitConversationTranscript(
-        _ transcript: String,
-        elapsedSinceTurnStart: TimeInterval,
-        elapsedSinceLastSpeech: TimeInterval
-    ) -> Bool {
-        conversationTranscriptWordCount(transcript) >= aiConversationMinimumAutoSendWordCount
-            && elapsedSinceTurnStart >= aiConversationMinimumReplySeconds
-            && elapsedSinceLastSpeech >= aiConversationAutoSendDelaySeconds
-    }
-
-    static func conversationTranscriptWordCount(_ transcript: String) -> Int {
-        transcript.split { $0.isWhitespace || $0.isNewline }.count
-    }
-
-    private func stopSpeechRecognition(cancel: Bool) {
-        speechPauseTimer?.invalidate()
-        speechPauseTimer = nil
-        speechRecognitionGeneration += 1
-        speechRecognitionRequest?.endAudio()
-        if cancel {
-            speechRecognitionTask?.cancel()
-        } else {
-            speechRecognitionTask?.finish()
+    private var preferredSpeechTranscriptionProvider: VoiceSpeechTranscriptionProvider {
+        // iOS 26 SpeechAnalyzer wins on latency + accuracy on A17/A18 Neural Engine.
+        // Use it whenever available unless the user explicitly forced Apple Speech.
+        if Bundle.main.voiceTranscriptionProviderPreference != .appleSpeech,
+           let analyzer = appleSpeechAnalyzerProvider {
+            return analyzer
         }
-        speechRecognitionRequest = nil
-        speechRecognitionTask = nil
+
+        switch Bundle.main.voiceTranscriptionProviderPreference {
+        case .fluidAudio:
+            #if canImport(FluidAudio)
+            return fluidAudioSpeechTranscriptionProvider
+            #else
+            return appleSpeechTranscriptionProvider
+            #endif
+        case .appleSpeech:
+            return appleSpeechTranscriptionProvider
+        }
+    }
+
+    private func startTranscriptionProvider(
+        _ provider: VoiceSpeechTranscriptionProvider,
+        generation: Int,
+        allowsAppleFallback: Bool
+    ) {
+        speechTranscriptionProvider = provider
+        activeSpeechTranscriptionSource = provider.source
+        provider.start(
+            partialHandler: { [weak self, weak provider] transcript in
+                DispatchQueue.main.async {
+                    guard let self,
+                          let provider,
+                          self.speechRecognitionGeneration == generation,
+                          self.speechTranscriptionProvider === provider
+                    else { return }
+
+                    let transcript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !transcript.isEmpty {
+                        self.currentTranscript = transcript
+                    }
+                }
+            },
+            endOfUtteranceHandler: { [weak self, weak provider] transcript in
+                DispatchQueue.main.async {
+                    guard let self,
+                          let provider,
+                          self.speechRecognitionGeneration == generation,
+                          self.speechTranscriptionProvider === provider
+                    else { return }
+
+                    let transcript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !transcript.isEmpty {
+                        self.currentTranscript = transcript
+                    }
+
+                    if case .aiListening = self.phase {
+                        self.completeCurrentConversationTurn()
+                    }
+                }
+            },
+            errorHandler: { [weak self, weak provider] _ in
+                DispatchQueue.main.async {
+                    guard let self,
+                          let provider,
+                          self.speechRecognitionGeneration == generation,
+                          self.speechTranscriptionProvider === provider
+                    else { return }
+
+                    if allowsAppleFallback && provider.source != self.appleSpeechTranscriptionProvider.source {
+                        self.startAppleSpeechFallback(generation: generation)
+                    }
+                }
+            },
+            completion: { [weak self, weak provider] result in
+                DispatchQueue.main.async {
+                    guard let self,
+                          let provider,
+                          self.speechRecognitionGeneration == generation,
+                          self.speechTranscriptionProvider === provider
+                    else { return }
+
+                    switch result {
+                    case .success:
+                        break
+                    case .failure:
+                        if allowsAppleFallback && provider.source != self.appleSpeechTranscriptionProvider.source {
+                            self.startAppleSpeechFallback(generation: generation)
+                        } else {
+                            self.speechTranscriptionProvider = nil
+                            self.activeSpeechTranscriptionSource = "none"
+                        }
+                    }
+                }
+            }
+        )
+    }
+
+    private func startAppleSpeechFallback(generation: Int) {
+        let previousProvider = speechTranscriptionProvider
+        speechTranscriptionProvider = nil
+        previousProvider?.stop(cancel: true) { _ in }
+
+        requestAppleSpeechRecognitionPermission { [weak self] granted, _ in
+            guard let self,
+                  self.speechRecognitionGeneration == generation,
+                  granted
+            else { return }
+
+            self.startTranscriptionProvider(
+                self.appleSpeechTranscriptionProvider,
+                generation: generation,
+                allowsAppleFallback: false
+            )
+        }
+    }
+
+    private func stopSpeechRecognition(cancel: Bool, completion: ((String?) -> Void)? = nil) {
+        speechRecognitionGeneration += 1
+        let provider = speechTranscriptionProvider
+        speechTranscriptionProvider = nil
+        if cancel {
+            activeSpeechTranscriptionSource = "none"
+        }
+        guard let provider else {
+            completion?(nil)
+            return
+        }
+
+        provider.stop(cancel: cancel) { transcript in
+            completion?(transcript)
+        }
     }
 
     private func reset() {
@@ -658,8 +760,8 @@ final class VoiceTrackingManager: ObservableObject {
         conversationRecordedSeconds = 0
         conversationTurnStartedAt = nil
         conversationTurnFrameStartIndex = 0
-        lastConversationSpeechAt = nil
-        conversationSpeechDetected = false
+        isCompletingConversationTurn = false
+        isFinalizingTranscript = false
         stopSpeechRecognition(cancel: true)
         rawAudioDebugExporter.reset()
     }
@@ -668,11 +770,9 @@ final class VoiceTrackingManager: ObservableObject {
         countdownTimer?.invalidate()
         progressTimer?.invalidate()
         taskTimer?.invalidate()
-        speechPauseTimer?.invalidate()
         countdownTimer = nil
         progressTimer = nil
         taskTimer = nil
-        speechPauseTimer = nil
     }
 
     func makeSessionMetadata(result: VoiceTrackingResult, experimentTag: String) -> VoiceTrackingSession {

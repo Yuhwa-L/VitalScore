@@ -61,16 +61,23 @@ final class AIConversationClientTests: XCTestCase {
 
     func test_analyzeVoiceExport_sendsAdvancedConversationExportAndQuestionBackground() async throws {
         let endpoint = try XCTUnwrap(URL(string: "http://127.0.0.1:8787/ai/voice-conversation"))
-        let exportId = UUID()
-        let analysisId = UUID()
         let session = makeAdvancedVoiceSession()
         let export = MultimodalAnalysisExport.voice(session: session, dailyRecord: nil)
 
         AIClientURLProtocol.handler = { request, body in
-            XCTAssertEqual(request.url?.path, "/ai/voice-analysis")
+            XCTAssertEqual(request.url?.host, "api.openai.com")
+            XCTAssertEqual(request.url?.path, "/v1/responses")
             XCTAssertEqual(request.httpMethod, "POST")
 
-            let payload = try JSONDecoder.iso8601.decode(VoiceAIAnalysisRequestPayload.self, from: body)
+            let openAIRequest = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            XCTAssertEqual(openAIRequest["store"] as? Bool, false)
+            XCTAssertEqual(openAIRequest["instructions"] as? String, VoiceAIConversationBuilder.analysisSystemInstruction)
+
+            let input = try XCTUnwrap(openAIRequest["input"] as? String)
+            let prompt = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(input.utf8)) as? [String: Any])
+            let payloadObject = try XCTUnwrap(prompt["payload"] as? [String: Any])
+            let payloadData = try JSONSerialization.data(withJSONObject: payloadObject)
+            let payload = try JSONDecoder.iso8601.decode(VoiceAIAnalysisRequestPayload.self, from: payloadData)
             XCTAssertEqual(payload.provider, "openai")
             XCTAssertEqual(payload.model, "unit-model")
             XCTAssertEqual(payload.exportFileName, "advanced-voice-export.json")
@@ -85,20 +92,31 @@ final class AIConversationClientTests: XCTestCase {
             XCTAssertEqual(payload.recentVoiceHistory.first?.id, session.id)
             XCTAssertTrue(payload.debugAudioSamples.isEmpty)
 
-            let response = VoiceAIAnalysisResponse(
-                id: analysisId,
-                exportId: exportId,
-                createdAt: Date(timeIntervalSince1970: 1_800_000_100),
-                source: "test",
-                summary: "Advanced voice conversation data was received.",
-                dataQuality: ["Transcript and acoustic summary were present."],
-                notableSignals: ["Conversation transcript available."],
-                longitudinalContext: ["Recent history was included."],
-                missingData: [],
-                recommendedNextSteps: ["Repeat under similar conditions."],
-                safetyNote: "Wellness-only, not medical advice."
-            )
-            let data = try JSONEncoder.iso8601.encode(response)
+            let analysisShape: [String: Any] = [
+                "aiVoiceScore": 82,
+                "aiScoreConfidence": "Medium",
+                "aiScoreRationale": "Transcript and acoustic summary were usable.",
+                "summary": "Advanced voice conversation data was received.",
+                "dataQuality": ["Transcript and acoustic summary were present."],
+                "notableSignals": ["Conversation transcript available."],
+                "longitudinalContext": ["Recent history was included."],
+                "missingData": [],
+                "recommendedNextSteps": ["Repeat under similar conditions."],
+                "safetyNote": "Wellness-only, not medical advice."
+            ]
+            let analysisData = try JSONSerialization.data(withJSONObject: analysisShape)
+            let outputText = String(decoding: analysisData, as: UTF8.self)
+            let responseEnvelope: [String: Any] = [
+                "output": [
+                    [
+                        "type": "message",
+                        "content": [
+                            ["text": outputText]
+                        ]
+                    ]
+                ]
+            ]
+            let data = try JSONSerialization.data(withJSONObject: responseEnvelope)
             return (
                 HTTPURLResponse(
                     url: request.url!,
@@ -116,8 +134,9 @@ final class AIConversationClientTests: XCTestCase {
             recentVoiceSessions: [session]
         )
 
-        XCTAssertEqual(response.id, analysisId)
-        XCTAssertEqual(response.exportId, exportId)
+        XCTAssertEqual(response.exportId, export.id)
+        XCTAssertEqual(response.source, "direct_openai_voice_service")
+        XCTAssertEqual(response.aiVoiceScore, 82)
     }
 
     private func makeClient(endpoint: URL) -> AIConversationClient {

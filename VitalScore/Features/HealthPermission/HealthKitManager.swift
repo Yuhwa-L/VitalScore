@@ -70,6 +70,15 @@ final class HealthKitManager: ObservableObject {
         lastFetchedAt = Date()
     }
 
+    func applyMockRecord(_ record: DailyHealthRecord) {
+        latestRestingHeartRate = record.restingHeartRateBPM
+        latestHRV = record.hrvMs
+        todaySteps = record.stepCount
+        todayActiveEnergy = record.activeEnergyKcal
+        lastNightSleepHours = record.sleepHours
+        lastFetchedAt = Date()
+    }
+
     private func loadFromBundleSync() {
         guard let url = Bundle.main.url(forResource: "health_seed", withExtension: "json", subdirectory: "MockData")
                 ?? Bundle.main.url(forResource: "health_seed", withExtension: "json"),

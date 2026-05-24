@@ -67,6 +67,9 @@ struct VoiceTrackingView: View {
         .navigationTitle(mode.title)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
+        .onAppear {
+            manager.prewarmTranscription()
+        }
         .onChange(of: manager.phase) { _, newPhase in
             speakPromptIfNeeded(for: newPhase)
             respondToAIThinkingIfNeeded(for: newPhase)
@@ -218,63 +221,76 @@ struct VoiceTrackingView: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
             }
-        case .aiListening:
+        case .aiListening(_, let turnIndex, _):
             VStack(spacing: 22) {
                 VStack(spacing: 6) {
                     Text("Your response")
                         .font(.title3.weight(.semibold))
-                    Text("The app sends your answer after a clear pause.")
+                    Text("Question \(turnIndex) of \(VoiceTrackingManager.aiConversationMaxTurns)")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.secondary)
+                    Text("It sends automatically when you stop speaking, or tap Send Now.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
-                Text(manager.currentTranscript.isEmpty ? "Listening..." : manager.currentTranscript)
+                Text(manager.isFinalizingTranscript ? "Finalizing…" : "Listening…")
                     .font(.title3.weight(.semibold))
                     .multilineTextAlignment(.center)
-                    .foregroundStyle(manager.currentTranscript.isEmpty ? .secondary : .primary)
+                    .foregroundStyle(.secondary)
                 voiceMeter
                 ProgressView(value: manager.elapsedSeconds, total: VoiceTrackingManager.aiConversationTurnDurationSeconds)
                     .tint(.teal)
-                Text("Pause briefly when you are done, or tap Send Now.")
+                Text("\(Int(ceil(max(0, VoiceTrackingManager.aiConversationTurnDurationSeconds - manager.elapsedSeconds))))s remaining")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                HStack(spacing: 12) {
-                    Button {
-                        manager.resetCurrentAIResponse()
-                    } label: {
-                        Label("Reset", systemImage: "arrow.counterclockwise")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color(.secondarySystemBackground))
-                            .foregroundColor(.accentColor)
-                            .cornerRadius(12)
+                Text("Pause to send automatically, or tap Send Now.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                if manager.isFinalizingTranscript {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text("Finalizing transcript…")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.secondary)
                     }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color(.secondarySystemBackground))
+                    .cornerRadius(12)
+                } else {
+                    HStack(spacing: 12) {
+                        Button {
+                            manager.resetCurrentAIResponse()
+                        } label: {
+                            Label("Reset", systemImage: "arrow.counterclockwise")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color(.secondarySystemBackground))
+                                .foregroundColor(.accentColor)
+                                .cornerRadius(12)
+                        }
 
-                    Button {
-                        manager.finishEarly()
-                    } label: {
-                        Text("Send Now")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color.accentColor)
-                            .foregroundColor(.white)
-                            .cornerRadius(12)
+                        Button {
+                            manager.finishEarly()
+                        } label: {
+                            Text("Send Now")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.accentColor)
+                                .foregroundColor(.white)
+                                .cornerRadius(12)
+                        }
                     }
                 }
             }
-        case .aiThinking(_, _, let transcript):
+        case .aiThinking:
             VStack(spacing: 18) {
                 ProgressView()
                     .tint(.teal)
-                Text("Thinking")
+                Text("Thinking…")
                     .font(.title3.weight(.semibold))
-                if !transcript.isEmpty {
-                    Text(transcript)
-                        .font(.body)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                }
             }
         case .running:
             VStack(spacing: 22) {
@@ -356,7 +372,7 @@ struct VoiceTrackingView: View {
         case .fixedPrompt:
             return "Follow the fixed prompts on screen: quiet calibration, two ahh sounds, counting from 1 to 10, and the read-aloud sentence. Audio is analyzed on device for acoustic features; raw audio is not stored unless enabled in debug settings."
         case .advancedFreestyle:
-            return "Have a short AI-guided voice conversation. There are no ahh, counting, or reading prompts in advanced mode. The app transcribes your responses for wellness trend analysis; raw audio is not stored unless enabled in debug settings."
+            return "Have a 2-3 minute AI-guided voice conversation. There are no ahh, counting, or reading prompts in advanced mode. The app transcribes your responses for wellness trend analysis; raw audio is not stored unless enabled in debug settings."
         }
     }
 
@@ -379,7 +395,8 @@ struct VoiceTrackingView: View {
     }
 
     private func resultView(_ result: VoiceTrackingResult) -> some View {
-        let scoredResult = VoiceTrackingManager.score(result, against: previousSessions)
+        let locallyScoredResult = VoiceTrackingManager.score(result, against: previousSessions)
+        let scoredResult = resultForDisplay(locallyScoredResult)
         return VStack(spacing: 14) {
             aiAnalysisSummaryPanel
 
@@ -387,10 +404,10 @@ struct VoiceTrackingView: View {
                 Text("Voice Score")
                     .font(.headline)
                     .foregroundColor(.secondary)
-                Text("\(Int(scoredResult.voiceScore))")
+                Text(voiceScoreDisplayText(scoredResult))
                     .font(.system(size: 72, weight: .bold))
                     .foregroundColor(scoreColor(scoredResult.voiceScore))
-                Text("\(scoredResult.voiceConfidence) confidence")
+                Text(voiceScoreStatusText(scoredResult))
                     .font(.subheadline)
                     .foregroundColor(.secondary)
             }
@@ -472,7 +489,7 @@ struct VoiceTrackingView: View {
             .resultPanel()
 
             Button {
-                let session = completedSession
+                let session = completedSession?.replacingResult(scoredResult)
                     ?? manager.makeSessionMetadata(result: scoredResult, experimentTag: experimentTag)
                 onFinished(session)
             } label: {
@@ -484,6 +501,8 @@ struct VoiceTrackingView: View {
                     .foregroundColor(.white)
                     .cornerRadius(12)
             }
+            .disabled(mode == .fixedPrompt && completionAnalysisStatus == .loading)
+            .opacity(mode == .fixedPrompt && completionAnalysisStatus == .loading ? 0.5 : 1)
         }
     }
 
@@ -494,12 +513,12 @@ struct VoiceTrackingView: View {
             EmptyView()
         case .loading:
             VStack(alignment: .leading, spacing: 12) {
-                Label("AI Summary", systemImage: "sparkles")
+                Label("API Voice Score", systemImage: "sparkles")
                     .font(.headline)
                 HStack(spacing: 10) {
                     ProgressView()
                         .tint(.teal)
-                    Text("Analyzing this voice check...")
+                    Text("Sending saved voice test data for scoring...")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -507,8 +526,13 @@ struct VoiceTrackingView: View {
             .resultPanel()
         case .ready(let analysis):
             VStack(alignment: .leading, spacing: 12) {
-                Label(analysis.source == "local_summary_fallback" ? "Voice Summary" : "AI Summary", systemImage: "sparkles")
+                Label(analysis.source == "local_summary_fallback" ? "Local Voice Score" : "API Voice Score", systemImage: "sparkles")
                     .font(.headline)
+                if let aiVoiceScore = analysis.aiVoiceScore {
+                    Text("Score \(Int(aiVoiceScore.rounded()))")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(scoreColor(aiVoiceScore))
+                }
                 Text(analysis.summary)
                     .font(.subheadline)
                     .foregroundStyle(.primary)
@@ -560,6 +584,24 @@ struct VoiceTrackingView: View {
         if score >= 75 { return .green }
         if score < 50 { return .orange }
         return .primary
+    }
+
+    private func voiceScoreDisplayText(_ result: VoiceTrackingResult) -> String {
+        if mode == .fixedPrompt && completionAnalysisStatus == .loading {
+            return "--"
+        }
+        return "\(Int(result.voiceScore.rounded()))"
+    }
+
+    private func voiceScoreStatusText(_ result: VoiceTrackingResult) -> String {
+        switch completionAnalysisStatus {
+        case .loading where mode == .fixedPrompt:
+            return "calculating with API"
+        case .ready(let analysis) where analysis.source != "local_summary_fallback":
+            return "\(result.voiceConfidence) confidence from API"
+        default:
+            return "\(result.voiceConfidence) confidence"
+        }
     }
 
     private func prepareAndStartConversation() {
@@ -628,12 +670,48 @@ struct VoiceTrackingView: View {
             await MainActor.run {
                 guard completedSession?.id == session.id else { return }
                 if let analysis {
+                    completedSession = session.replacingResult(
+                        resultByApplyingAnalysis(analysis, to: session.result)
+                    )
                     completionAnalysisStatus = .ready(analysis)
                 } else {
                     completionAnalysisStatus = .unavailable("AI summary is unavailable. Local voice metrics are shown below.")
                 }
             }
         }
+    }
+
+    private func resultForDisplay(_ result: VoiceTrackingResult) -> VoiceTrackingResult {
+        guard case .ready(let analysis) = completionAnalysisStatus else {
+            return result
+        }
+        return resultByApplyingAnalysis(analysis, to: result)
+    }
+
+    private func resultByApplyingAnalysis(
+        _ analysis: VoiceAIAnalysisResponse,
+        to result: VoiceTrackingResult
+    ) -> VoiceTrackingResult {
+        guard let aiScore = analysis.aiVoiceScore else { return result }
+        let boundedScore = min(100, max(0, aiScore))
+        let confidence = analysis.aiScoreConfidence?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let rationale = analysis.aiScoreRationale?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        var topDrivers = result.topDrivers
+        if let rationale, !rationale.isEmpty,
+           !topDrivers.contains(where: { $0.contains(rationale) }) {
+            topDrivers.insert("AI score rationale: \(rationale)", at: 0)
+        }
+
+        return result.scored(
+            voiceScore: boundedScore,
+            confidence: confidence?.isEmpty == false ? confidence! : result.voiceConfidence,
+            baselineSessionsUsed: result.baselineSessionsUsed,
+            baselineStatus: "ai_analysis_scored",
+            topDrivers: topDrivers
+        )
     }
 
     private func resetCompletionAnalysis() {

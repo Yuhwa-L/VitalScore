@@ -1,6 +1,6 @@
 import Foundation
 
-struct VoiceTrackingSession: Codable, Identifiable {
+struct VoiceTrackingSession: Codable, Identifiable, Equatable {
     let id: UUID
     let date: Date
     let experimentTag: String
@@ -19,6 +19,11 @@ struct VoiceTrackingSession: Codable, Identifiable {
     let featureExtractorVersion: String
     let modelVersion: String
     let result: VoiceTrackingResult
+
+    var containsLocallySavedLiveData: Bool {
+        result.containsLocallySavedLiveData ||
+        (result.hasLiveConversationTask && rawAudioDebugManifestPath != nil)
+    }
 
     init(
         id: UUID = UUID(),
@@ -58,5 +63,56 @@ struct VoiceTrackingSession: Codable, Identifiable {
         self.featureExtractorVersion = featureExtractorVersion
         self.modelVersion = modelVersion
         self.result = result
+    }
+
+    func replacingResult(_ result: VoiceTrackingResult) -> VoiceTrackingSession {
+        VoiceTrackingSession(
+            id: id,
+            date: date,
+            experimentTag: experimentTag,
+            promptTag: promptTag,
+            language: language,
+            promptVersion: promptVersion,
+            deviceModel: deviceModel,
+            osVersion: osVersion,
+            microphoneRoute: microphoneRoute,
+            sampleRate: sampleRate,
+            channels: channels,
+            consentVersion: consentVersion,
+            rawAudioRetentionPolicy: rawAudioRetentionPolicy,
+            rawAudioDebugManifestPath: rawAudioDebugManifestPath,
+            baselineVersion: baselineVersion,
+            featureExtractorVersion: featureExtractorVersion,
+            modelVersion: modelVersion,
+            result: result
+        )
+    }
+
+    func removingLocallySavedLiveData() -> VoiceTrackingSession {
+        guard containsLocallySavedLiveData else { return self }
+        return VoiceTrackingSession(
+            id: id,
+            date: date,
+            experimentTag: experimentTag,
+            promptTag: promptTag,
+            language: language,
+            promptVersion: promptVersion,
+            deviceModel: deviceModel,
+            osVersion: osVersion,
+            microphoneRoute: microphoneRoute,
+            sampleRate: sampleRate,
+            channels: channels,
+            consentVersion: consentVersion,
+            rawAudioRetentionPolicy: result.hasLiveConversationTask
+                ? "features_only_no_raw_audio"
+                : rawAudioRetentionPolicy,
+            rawAudioDebugManifestPath: result.hasLiveConversationTask
+                ? nil
+                : rawAudioDebugManifestPath,
+            baselineVersion: baselineVersion,
+            featureExtractorVersion: featureExtractorVersion,
+            modelVersion: modelVersion,
+            result: result.removingLocallySavedLiveData()
+        )
     }
 }

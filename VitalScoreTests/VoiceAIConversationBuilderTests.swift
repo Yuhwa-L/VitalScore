@@ -14,6 +14,7 @@ final class VoiceAIConversationBuilderTests: XCTestCase {
         XCTAssertEqual(context.recentHistory.first?.voiceScore, 72)
         XCTAssertEqual(context.desiredConversationTurns, 4)
         XCTAssertTrue(context.missingInputs.contains("personal voice baseline"))
+        XCTAssertTrue(context.requiredAcousticTasks.contains { $0.contains("2 to 3 minutes") })
         XCTAssertTrue(context.guardrails.contains("No medical diagnosis"))
     }
 
@@ -28,7 +29,7 @@ final class VoiceAIConversationBuilderTests: XCTestCase {
         XCTAssertEqual(plan.promptTag, VoiceAIConversationBuilder.promptTag)
         XCTAssertEqual(plan.conversationTurns.count, 1)
         XCTAssertEqual(plan.conversationTurns.first?.prompt, VoiceAIConversationBuilder.fallbackFreeTalkPrompt)
-        XCTAssertEqual(plan.conversationTurns.first?.targetDurationSeconds, 45)
+        XCTAssertEqual(plan.conversationTurns.first?.targetDurationSeconds, 35)
         XCTAssertTrue(plan.conversationTurns.allSatisfy { !$0.prompt.isEmpty })
         XCTAssertTrue(plan.safetyNote.lowercased().contains("not a diagnosis"))
     }
@@ -59,7 +60,7 @@ final class VoiceAIConversationBuilderTests: XCTestCase {
         XCTAssertEqual(plan.promptTag, VoiceAIConversationBuilder.promptTag)
         XCTAssertEqual(plan.conversationTurns.count, 1)
         XCTAssertEqual(plan.conversationTurns[0].prompt, "Talk for one minute about what has shaped your energy and focus today.")
-        XCTAssertEqual(plan.conversationTurns[0].targetDurationSeconds, 45)
+        XCTAssertEqual(plan.conversationTurns[0].targetDurationSeconds, 35)
     }
 
     func test_tasks_forAdvancedTalkUseOnlyGuidedConversation() {
@@ -73,7 +74,8 @@ final class VoiceAIConversationBuilderTests: XCTestCase {
 
         XCTAssertEqual(tasks.count, 1)
         XCTAssertEqual(tasks.filter { $0.type == .guidedConversation }.count, 1)
-        XCTAssertEqual(tasks.last?.targetDurationSeconds, 45)
+        XCTAssertEqual(tasks.last?.targetDurationSeconds, 140)
+        XCTAssertEqual(tasks.last?.minimumUsableDurationSeconds, 30)
         XCTAssertFalse(tasks.contains { $0.type == .silenceCalibration })
         XCTAssertFalse(tasks.contains { $0.type == .sustainedVowelAFirst })
         XCTAssertFalse(tasks.contains { $0.type == .sustainedVowelASecond })
