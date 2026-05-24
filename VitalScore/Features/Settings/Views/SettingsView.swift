@@ -112,19 +112,6 @@ extension Bundle {
         configuredString(for: "VitalScoreAIProvider", fallback: "openai")
     }
 
-    var aiDialogModel: String {
-        configuredString(for: "VitalScoreAIDialogModel", fallback: "gpt-5.4-mini")
-    }
-
-    var aiDialogEndpointURL: URL? {
-        guard let rawValue = infoDictionary?["VitalScoreAIDialogEndpoint"] as? String,
-              !rawValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        else {
-            return nil
-        }
-        return URL(string: rawValue)
-    }
-
     private func configuredURL(for key: String, fallback: String) -> URL {
         let rawValue = infoDictionary?[key] as? String
         return URL(string: rawValue ?? fallback) ?? URL(string: fallback)!

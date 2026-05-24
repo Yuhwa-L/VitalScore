@@ -46,6 +46,9 @@ extension LocalStorageManager {
     private static let bundledGazeLogSubdirectory = "TagData/GazeLogs"
 
     var shouldAutoloadTagDemoData: Bool {
+        if defaults.bool(forKey: Self.tagDemoAutoloadSuppressedKey) {
+            return false
+        }
         let records = loadAllRecords()
         let existingTags = Set(records.map { ExperimentTagValue.normalized($0.experimentTag).lowercased() })
         return records.isEmpty ||

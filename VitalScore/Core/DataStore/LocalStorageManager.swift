@@ -10,6 +10,7 @@ final class LocalStorageManager: ObservableObject {
     static let analysisIndexFileName = "analysis_exports.jsonl"
     static let aiAnalysisIndexFileName = "ai_analysis_results.jsonl"
     static let eyeFocusSummariesKey = "com.vitalscore.eyeFocusSummaries.v1"
+    static let tagDemoAutoloadSuppressedKey = "com.vitalscore.tagDemoAutoloadSuppressed.v1"
 
     let defaults: UserDefaults
     private let exportDirectoryOverride: URL?
@@ -305,6 +306,7 @@ final class LocalStorageManager: ObservableObject {
         defaults.removeObject(forKey: Self.onboardingKey)
         defaults.removeObject(forKey: Self.healthPermissionKey)
         defaults.removeObject(forKey: Self.voiceSessionsKey)
+        defaults.removeObject(forKey: Self.tagDemoAutoloadSuppressedKey)
         revision += 1
     }
 
@@ -312,6 +314,7 @@ final class LocalStorageManager: ObservableObject {
     func removeTodaysJSONData(referenceDate: Date = Date()) -> TodaysJSONDataCleanupResult {
         let calendar = Calendar.current
         var result = TodaysJSONDataCleanupResult()
+        defaults.set(true, forKey: Self.tagDemoAutoloadSuppressedKey)
 
         result.dailyRecordsRemoved = removeTodaysDailyRecords(referenceDate: referenceDate, calendar: calendar)
         result.voiceSessionsRemoved = removeTodaysVoiceSessions(referenceDate: referenceDate, calendar: calendar)

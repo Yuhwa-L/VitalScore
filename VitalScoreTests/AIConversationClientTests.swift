@@ -8,8 +8,7 @@ final class AIConversationClientTests: XCTestCase {
         super.tearDown()
     }
 
-    func test_buildVoiceChatReply_sendsTranscriptAndHistoryToChatTurnAPI() async throws {
-        let endpoint = try XCTUnwrap(URL(string: "http://127.0.0.1:8787/ai/voice-conversation"))
+    func test_buildVoiceChatReply_sendsTranscriptAndHistoryToDirectOpenAI() async throws {
         let context = VoiceAIConversationBuilder.makeContext(
             experimentTag: "Morning check",
             history: [],
@@ -22,20 +21,45 @@ final class AIConversationClientTests: XCTestCase {
         let latestTranscript = "The tired feeling is mostly from a late night."
 
         AIClientURLProtocol.handler = { request, body in
-            XCTAssertEqual(request.url?.path, "/ai/voice-chat-turn")
+            XCTAssertEqual(request.url?.host, "api.openai.com")
+            XCTAssertEqual(request.url?.path, "/v1/responses")
             XCTAssertEqual(request.httpMethod, "POST")
 
-            let payload = try JSONDecoder.iso8601.decode(VoiceAIChatTurnRequestPayload.self, from: body)
-            XCTAssertEqual(payload.provider, "openai")
-            XCTAssertEqual(payload.model, "unit-model")
-            XCTAssertEqual(payload.context.experimentTag, "Morning check")
-            XCTAssertEqual(payload.history, history)
-            XCTAssertEqual(payload.previousAssistantReplies, ["How is your focus today?"])
-            XCTAssertEqual(payload.previousUserTranscripts, ["It is steady, but I feel a bit tired."])
-            XCTAssertEqual(payload.latestUserTranscript, latestTranscript)
-            XCTAssertEqual(payload.turnIndex, 2)
-            XCTAssertEqual(payload.maxTurns, 4)
+            let openAIRequest = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            XCTAssertEqual(openAIRequest["model"] as? String, "unit-model")
+            XCTAssertEqual(openAIRequest["store"] as? Bool, false)
+            XCTAssertEqual(openAIRequest["instructions"] as? String, VoiceAIConversationBuilder.chatTurnSystemInstruction)
 
+            let input = try XCTUnwrap(openAIRequest["input"] as? String)
+            let prompt = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(input.utf8)) as? [String: Any])
+            let turnState = try XCTUnwrap(prompt["turnState"] as? [String: Any])
+            XCTAssertEqual(turnState["turnIndex"] as? Int, 2)
+            XCTAssertEqual(turnState["maxTurns"] as? Int, 4)
+            let inputData = try XCTUnwrap(prompt["inputData"] as? [String: Any])
+            XCTAssertEqual(inputData["latestUserTranscript"] as? String, latestTranscript)
+            XCTAssertEqual(inputData["previousAssistantQuestions"] as? [String], ["How is your focus today?"])
+            let priorConversation = try XCTUnwrap(inputData["priorConversation"] as? [[String: String]])
+            XCTAssertEqual(priorConversation, history.map { ["role": $0.role, "text": $0.text] })
+            let contextObject = try XCTUnwrap(inputData["context"] as? [String: Any])
+            XCTAssertEqual(contextObject["experimentTag"] as? String, "Morning check")
+
+            let replyShape: [String: Any] = [
+                "reply": "That makes sense. What would help your energy now?",
+                "should_continue": true
+            ]
+            let replyData = try JSONSerialization.data(withJSONObject: replyShape)
+            let outputText = String(decoding: replyData, as: UTF8.self)
+            let responseEnvelope: [String: Any] = [
+                "output": [
+                    [
+                        "type": "message",
+                        "content": [
+                            ["text": outputText]
+                        ]
+                    ]
+                ]
+            ]
+            let data = try JSONSerialization.data(withJSONObject: responseEnvelope)
             return (
                 HTTPURLResponse(
                     url: request.url!,
@@ -43,11 +67,11 @@ final class AIConversationClientTests: XCTestCase {
                     httpVersion: nil,
                     headerFields: ["Content-Type": "application/json"]
                 )!,
-                Data(#"{"reply":"That makes sense. What would help your energy now?","shouldContinue":true,"source":"test"}"#.utf8)
+                data
             )
         }
 
-        let response = try await makeClient(endpoint: endpoint).buildVoiceChatReply(
+        let response = try await makeClient().buildVoiceChatReply(
             context: context,
             history: history,
             latestUserTranscript: latestTranscript,
@@ -60,7 +84,6 @@ final class AIConversationClientTests: XCTestCase {
     }
 
     func test_analyzeVoiceExport_sendsAdvancedConversationExportAndQuestionBackground() async throws {
-        let endpoint = try XCTUnwrap(URL(string: "http://127.0.0.1:8787/ai/voice-conversation"))
         let session = makeAdvancedVoiceSession()
         let export = MultimodalAnalysisExport.voice(session: session, dailyRecord: nil)
 
@@ -128,7 +151,7 @@ final class AIConversationClientTests: XCTestCase {
             )
         }
 
-        let response = try await makeClient(endpoint: endpoint).analyzeVoiceExport(
+        let response = try await makeClient().analyzeVoiceExport(
             export,
             exportFileName: "advanced-voice-export.json",
             recentVoiceSessions: [session]
@@ -140,7 +163,6 @@ final class AIConversationClientTests: XCTestCase {
     }
 
     func test_generateWellnessSuggestions_sendsHistoricalPayloadAndSafetyRules() async throws {
-        let endpoint = try XCTUnwrap(URL(string: "http://127.0.0.1:8787/ai/voice-conversation"))
         let records = makeSuggestionRecords()
         let voiceSession = makeAdvancedVoiceSession()
 
@@ -222,7 +244,7 @@ final class AIConversationClientTests: XCTestCase {
             )
         }
 
-        let response = try await makeClient(endpoint: endpoint).generateWellnessSuggestions(
+        let response = try await makeClient().generateWellnessSuggestions(
             records: records,
             voiceSessions: [voiceSession],
             tagFilter: "Morning"
@@ -234,13 +256,11 @@ final class AIConversationClientTests: XCTestCase {
         XCTAssertTrue(response.suggestions.allSatisfy(\.notMedicalAdvice))
     }
 
-    private func makeClient(endpoint: URL) -> AIConversationClient {
+    private func makeClient() -> AIConversationClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [AIClientURLProtocol.self]
         let session = URLSession(configuration: configuration)
         return AIConversationClient(
-            endpoint: endpoint,
-            model: "unit-model",
             provider: "openai",
             session: session,
             directOpenAIAPIKey: "unit-test-key",

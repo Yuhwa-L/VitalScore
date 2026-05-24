@@ -4,7 +4,6 @@ import os
 private let aiConversationLog = Logger(subsystem: "com.zeusya7015.vitalscore", category: "AIConversation")
 
 enum AIConversationClientError: Error, LocalizedError {
-    case missingEndpoint
     case missingAPIKey
     case missingVoiceAnalysisContext
     case invalidResponse
@@ -13,8 +12,6 @@ enum AIConversationClientError: Error, LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .missingEndpoint:
-            return "AI conversation endpoint is not configured."
         case .missingAPIKey:
             return "OpenAI API key is not configured."
         case .missingVoiceAnalysisContext:
@@ -38,23 +35,17 @@ final class AIConversationClient {
     Style: use concrete observable trends, label uncertainty, and frame every suggestion as optional tracking rather than medical advice.
     """
 
-    private let endpoint: URL?
-    private let model: String
     private let provider: String
     private let session: URLSession
     private let directOpenAIAPIKey: String?
     private let directOpenAIModel: String
 
     init(
-        endpoint: URL? = Bundle.main.aiDialogEndpointURL,
-        model: String = Bundle.main.aiDialogModel,
         provider: String = Bundle.main.aiProvider,
         session: URLSession = .shared,
         directOpenAIAPIKey: String? = Bundle.main.aiConversationOpenAIAPIKey,
         directOpenAIModel: String = Bundle.main.aiConversationOpenAIModel
     ) {
-        self.endpoint = endpoint
-        self.model = model
         self.provider = provider
         self.session = session
         self.directOpenAIAPIKey = directOpenAIAPIKey
@@ -62,52 +53,12 @@ final class AIConversationClient {
     }
 
     func buildVoiceConversationPlan(context: VoiceAIConversationContext) async throws -> VoiceAIConversationPlan {
-        if let endpoint {
-            do {
-                return try await buildPlanViaDialogServer(endpoint: endpoint, context: context)
-            } catch {
-                aiConversationLog.error("Dialog server plan failed; falling back to direct OpenAI: \(String(describing: error), privacy: .public)")
-            }
-        }
         return try await buildPlanViaDirectOpenAI(context: context)
-    }
-
-    private func buildPlanViaDialogServer(
-        endpoint: URL,
-        context: VoiceAIConversationContext
-    ) async throws -> VoiceAIConversationPlan {
-        let payload = VoiceAIConversationRequestPayload(
-            provider: provider,
-            model: model,
-            systemInstruction: VoiceAIConversationBuilder.systemInstruction,
-            context: context
-        )
-
-        var request = URLRequest(url: endpoint)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 20
-
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        request.httpBody = try encoder.encode(payload)
-
-        let (data, response) = try await session.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw AIConversationClientError.invalidResponse
-        }
-        guard (200..<300).contains(httpResponse.statusCode) else {
-            throw AIConversationClientError.serverError(httpResponse.statusCode)
-        }
-
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode(VoiceAIConversationPlan.self, from: data)
     }
 
     private func buildPlanViaDirectOpenAI(context: VoiceAIConversationContext) async throws -> VoiceAIConversationPlan {
         guard let apiKey = directOpenAIAPIKey else {
-            throw AIConversationClientError.missingEndpoint
+            throw AIConversationClientError.missingAPIKey
         }
         let modelName = directOpenAIModel
         let url = URL(string: "https://api.openai.com/v1/responses")!
@@ -223,76 +174,12 @@ final class AIConversationClient {
         turnIndex: Int,
         maxTurns: Int
     ) async throws -> VoiceAIChatTurnResponse {
-        if let endpoint = chatTurnEndpoint {
-            do {
-                return try await viaDialogServer(
-                    endpoint: endpoint,
-                    context: context,
-                    history: history,
-                    latestUserTranscript: latestUserTranscript,
-                    turnIndex: turnIndex,
-                    maxTurns: maxTurns
-                )
-            } catch {
-                aiConversationLog.error("Dialog server chat-turn failed; falling back to direct OpenAI: \(String(describing: error), privacy: .public)")
-            }
-        }
         return try await viaDirectOpenAI(
             context: context,
             history: history,
             latestUserTranscript: latestUserTranscript,
             turnIndex: turnIndex,
             maxTurns: maxTurns
-        )
-    }
-
-    private func viaDialogServer(
-        endpoint: URL,
-        context: VoiceAIConversationContext,
-        history: [VoiceAIChatMessage],
-        latestUserTranscript: String,
-        turnIndex: Int,
-        maxTurns: Int
-    ) async throws -> VoiceAIChatTurnResponse {
-        let payload = VoiceAIChatTurnRequestPayload(
-            provider: provider,
-            model: model,
-            systemInstruction: VoiceAIConversationBuilder.chatTurnSystemInstruction,
-            context: context,
-            history: history,
-            previousAssistantReplies: VoiceAIConversationBuilder.previousAssistantReplies(from: history),
-            previousUserTranscripts: VoiceAIConversationBuilder.previousUserTranscripts(from: history),
-            latestUserTranscript: latestUserTranscript,
-            turnIndex: turnIndex,
-            maxTurns: maxTurns
-        )
-
-        var request = URLRequest(url: endpoint)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 20
-
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        request.httpBody = try encoder.encode(payload)
-
-        let (data, response) = try await session.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw AIConversationClientError.invalidResponse
-        }
-        guard (200..<300).contains(httpResponse.statusCode) else {
-            throw AIConversationClientError.serverError(httpResponse.statusCode)
-        }
-
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let decodedResponse = try decoder.decode(VoiceAIChatTurnResponse.self, from: data)
-        return VoiceAIConversationBuilder.normalizedChatReply(
-            decodedResponse,
-            turnIndex: turnIndex,
-            maxTurns: maxTurns,
-            latestUserTranscript: latestUserTranscript,
-            history: history
         )
     }
 
@@ -304,7 +191,7 @@ final class AIConversationClient {
         maxTurns: Int
     ) async throws -> VoiceAIChatTurnResponse {
         guard let apiKey = directOpenAIAPIKey else {
-            throw AIConversationClientError.missingEndpoint
+            throw AIConversationClientError.missingAPIKey
         }
 
         let modelName = directOpenAIModel
@@ -460,7 +347,7 @@ final class AIConversationClient {
 
         let payload = VoiceAIAnalysisRequestPayload(
             provider: provider,
-            model: model,
+            model: directOpenAIModel,
             systemInstruction: VoiceAIConversationBuilder.analysisSystemInstruction,
             exportFileName: exportFileName,
             analysisExport: export,
@@ -765,12 +652,6 @@ final class AIConversationClient {
 
     private static func apiErrorMessage(from data: Data) -> String? {
         (try? JSONDecoder().decode(OpenAIErrorEnvelope.self, from: data))?.error.message
-    }
-
-    private var chatTurnEndpoint: URL? {
-        endpoint?
-            .deletingLastPathComponent()
-            .appendingPathComponent("voice-chat-turn")
     }
 
     static func debugAudioSamples(for session: VoiceTrackingSession?) -> [VoiceAIAudioSamplePayload] {

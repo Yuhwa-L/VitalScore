@@ -18,30 +18,13 @@
 	<string>1.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
-	<key>VitalScoreAPIBaseURL</key>
-	<string>$(VITALSCORE_API_BASE_URL)</string>
-	<key>VitalScorePrivacyPolicyURL</key>
-	<string>$(VITALSCORE_PRIVACY_POLICY_URL)</string>
-	<key>VitalScoreTermsURL</key>
-	<string>$(VITALSCORE_TERMS_URL)</string>
-	<key>VitalScoreAIProvider</key>
-	<string>$(VITALSCORE_AI_PROVIDER)</string>
-	<key>VitalScoreAIDialogModel</key>
-	<string>$(VITALSCORE_AI_DIALOG_MODEL)</string>
-	<key>VitalScoreAIDialogEndpoint</key>
-	<string>$(VITALSCORE_AI_DIALOG_ENDPOINT)</string>
-	<key>VitalScoreAIVoiceIdentifier</key>
-	<string>$(VITALSCORE_AI_VOICE_IDENTIFIER)</string>
-	<key>VitalScoreVoiceTranscriptionProvider</key>
-	<string>$(VITALSCORE_VOICE_TRANSCRIPTION_PROVIDER)</string>
-	<key>VitalScoreSpeechRecognitionMode</key>
-	<string>$(VITALSCORE_SPEECH_RECOGNITION_MODE)</string>
-	<key>VitalScoreAITranscriptionModel</key>
-	<string>$(VITALSCORE_AI_TRANSCRIPTION_MODEL)</string>
-	<key>VitalScoreOpenAIAPIKey</key>
-	<string>$(VITALSCORE_OPENAI_API_KEY)</string>
-	<key>VitalScoreOpenAIModel</key>
-	<string>$(VITALSCORE_OPENAI_MODEL)</string>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>VitalScore uses the camera only for the optional eye-focus test. The test is for wellness trends and is not a medical diagnosis.</string>
 	<key>NSHealthShareUsageDescription</key>
@@ -52,21 +35,34 @@
 	<string>VitalScore uses the microphone for the optional voice tracking check. Audio is analyzed live for wellness trends and is not stored unless a debug export is explicitly enabled.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>VitalScore uses speech recognition during the optional AI voice conversation to transcribe your responses for wellness trend analysis.</string>
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsLocalNetworking</key>
-		<true/>
-	</dict>
-	<key>UIFileSharingEnabled</key>
-	<true/>
-	<key>LSSupportsOpeningDocumentsInPlace</key>
-	<true/>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
 		<false/>
 	</dict>
+	<key>UIFileSharingEnabled</key>
+	<true/>
 	<key>UILaunchScreen</key>
 	<dict/>
+	<key>VitalScoreAIProvider</key>
+	<string>$(VITALSCORE_AI_PROVIDER)</string>
+	<key>VitalScoreAITranscriptionModel</key>
+	<string>$(VITALSCORE_AI_TRANSCRIPTION_MODEL)</string>
+	<key>VitalScoreAIVoiceIdentifier</key>
+	<string>$(VITALSCORE_AI_VOICE_IDENTIFIER)</string>
+	<key>VitalScoreAPIBaseURL</key>
+	<string>$(VITALSCORE_API_BASE_URL)</string>
+	<key>VitalScoreOpenAIAPIKey</key>
+	<string>$(VITALSCORE_OPENAI_API_KEY)</string>
+	<key>VitalScoreOpenAIModel</key>
+	<string>$(VITALSCORE_OPENAI_MODEL)</string>
+	<key>VitalScorePrivacyPolicyURL</key>
+	<string>$(VITALSCORE_PRIVACY_POLICY_URL)</string>
+	<key>VitalScoreSpeechRecognitionMode</key>
+	<string>$(VITALSCORE_SPEECH_RECOGNITION_MODE)</string>
+	<key>VitalScoreTermsURL</key>
+	<string>$(VITALSCORE_TERMS_URL)</string>
+	<key>VitalScoreVoiceTranscriptionProvider</key>
+	<string>$(VITALSCORE_VOICE_TRANSCRIPTION_PROVIDER)</string>
 </dict>
 </plist>
