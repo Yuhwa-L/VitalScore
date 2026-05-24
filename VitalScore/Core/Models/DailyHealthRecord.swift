@@ -27,6 +27,12 @@ struct DailyHealthRecord: Codable, Identifiable {
     let balanceScore: Double?
     let swayIndex: Double?
 
+    let voiceScore: Double?
+    let voiceAverageVolumeDb: Double?
+    let voiceVolumeStdDevDb: Double?
+    let voiceSilenceRatio: Double?
+    let voicePeakVolumeDb: Double?
+
     let selfReportedEnergy: Int?
     let selfReportedStress: Int?
     let selfReportedSleepQuality: Int?
@@ -57,6 +63,11 @@ struct DailyHealthRecord: Codable, Identifiable {
         gazeScore: Double? = nil,
         balanceScore: Double? = nil,
         swayIndex: Double? = nil,
+        voiceScore: Double? = nil,
+        voiceAverageVolumeDb: Double? = nil,
+        voiceVolumeStdDevDb: Double? = nil,
+        voiceSilenceRatio: Double? = nil,
+        voicePeakVolumeDb: Double? = nil,
         selfReportedEnergy: Int? = nil,
         selfReportedStress: Int? = nil,
         selfReportedSleepQuality: Int? = nil,
@@ -85,6 +96,11 @@ struct DailyHealthRecord: Codable, Identifiable {
         self.gazeScore = gazeScore
         self.balanceScore = balanceScore
         self.swayIndex = swayIndex
+        self.voiceScore = voiceScore
+        self.voiceAverageVolumeDb = voiceAverageVolumeDb
+        self.voiceVolumeStdDevDb = voiceVolumeStdDevDb
+        self.voiceSilenceRatio = voiceSilenceRatio
+        self.voicePeakVolumeDb = voicePeakVolumeDb
         self.selfReportedEnergy = selfReportedEnergy
         self.selfReportedStress = selfReportedStress
         self.selfReportedSleepQuality = selfReportedSleepQuality

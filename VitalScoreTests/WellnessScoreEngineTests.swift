@@ -25,7 +25,7 @@ final class WellnessScoreEngineTests: XCTestCase {
 
     func test_lowerRestingHeartRate_pushesScorePositive() {
         let baseline = baseline(sleep: 7.5, rhr: 65, hrv: 50, steps: 8000, focus: 80)
-        let today = record(sleep: 7.5, rhr: 58, hrv: 50, steps: 8000, focus: 80)
+        let today = record(sleep: 7.5, rhr: 50, hrv: 50, steps: 8000, focus: 80)
         let result = engine.calculate(today: today, baseline: baseline)
         XCTAssertGreaterThan(result.score, 0)
     }
