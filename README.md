@@ -1,16 +1,16 @@
 # VitalScore
 
-VitalScore is an iOS wellness-tracking prototype built with SwiftUI.
+*Measure What Works For You*
 
-The app shows health trends by tag, custom period, voice analysis, and eye-focus analysis. It is not a medical device and should not be used for diagnosis or treatment.
+VitalScore is a personalized intervention analytics platform, built as a native iOS app in SwiftUI, that helps users objectively measure how lifestyle interventions affect their cognitive and physical performance over time. It is not a medical device and should not be used for diagnosis or treatment.
 
 ## Service Overview
 
-VitalScore helps users understand how daily routines and environment changes line up with changes in their wellness signals. Users can tag different situations, such as `Morning`, `Gym`, or `Alcohol`, then compare trends only within that tag or within a custom date period.
+Millions of people experience fatigue, brain fog, and poor focus, but lack accessible tools to determine which lifestyle interventions actually improve their functioning. Existing wellness platforms primarily track passive biomarkers such as sleep duration, activity, and heart rate. VitalScore combines those biomarkers with short, active daily assessments to track the efficacy of interventions such as new supplements, diets, sleep schedules, or exercise routines.
 
-The main idea is to make lifestyle tracking easier to review after a real change happens, such as a new sleep schedule, workout routine, work stress period, travel, or diet experiment. Instead of showing one generic health score, VitalScore keeps the context attached to the data so users can compare similar days against similar days.
+Using a short daily assessment combined with wearable data, VitalScore establishes a highly personalized baseline and detects how interventions shift focus, fatigue, recovery, and cognitive performance. Functional outcomes are measured directly through eye tracking, vocal analysis, and wearable biomarkers, using active assessments inspired by validated methods from published clinical literature. Users tag different situations, such as `Morning`, `Gym`, or `Alcohol`, so similar days can be compared against similar days rather than against a single generic score.
 
-The app combines daily health records, eye-focus results, voice analysis, and AI-generated wellness suggestions into one dashboard. AI is used to summarize patterns and suggest low-risk things to track next, not to diagnose, treat, or make medical claims.
+The platform surfaces actionable insights such as *"Meditation improved alertness over the past two weeks"* or *"Magnesium improved your wellness score versus baseline."* Apple HealthKit provides continuous heart rate, HRV, step, and activity data; ARKit and iPhone sensors power the eye-tracking and motion assessments; and a cloud-based AI engine establishes personalized baselines and identifies how interventions affect them. The current MVP includes dashboard analytics, wellness scoring, insight generation, and longitudinal trend analysis. AI is used to summarize patterns and suggest low-risk things to track next, not to diagnose, treat, or make medical claims.
 
 ## Current Demo Data
 
