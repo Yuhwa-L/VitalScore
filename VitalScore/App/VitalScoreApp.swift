@@ -9,9 +9,11 @@ struct VitalScoreApp: App {
     init() {
         let storage = LocalStorageManager()
         #if DEBUG
-        storage.resetAll()
-        UserDefaults.standard.set(false, forKey: "com.vitalscore.healthPermissionGranted.v1")
-        print("[DEBUG] App state reset on launch — fresh onboarding flow.")
+        if ProcessInfo.processInfo.arguments.contains("--reset-state-on-launch") {
+            storage.resetAll()
+            UserDefaults.standard.set(false, forKey: "com.vitalscore.healthPermissionGranted.v1")
+            print("[DEBUG] App state reset on launch.")
+        }
         #endif
         _storage = StateObject(wrappedValue: storage)
         _experiments = StateObject(wrappedValue: ExperimentManager(storage: storage))

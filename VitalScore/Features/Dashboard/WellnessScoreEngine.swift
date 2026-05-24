@@ -179,7 +179,12 @@ struct WellnessScoreEngine {
             }
         }
 
-        lines.append("Your wellness markers are \(direction) during your \(today.experimentTag) experiment.")
+        let tag = today.experimentTag.trimmingCharacters(in: .whitespacesAndNewlines)
+        if tag.isEmpty || tag == "None" || tag == "Untagged" {
+            lines.append("Your wellness markers are \(direction) compared with your recent baseline.")
+        } else {
+            lines.append("Your wellness markers are \(direction) during your \(tag) experiment.")
+        }
         lines.append("This is a wellness trend, not a diagnosis, and does not show causation.")
         lines.append("Confidence: \(confidence) (\(availableCount) of 5 metrics available).")
         return lines.joined(separator: "\n")
