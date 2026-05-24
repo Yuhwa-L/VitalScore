@@ -24,6 +24,14 @@
 	<string>$(VITALSCORE_PRIVACY_POLICY_URL)</string>
 	<key>VitalScoreTermsURL</key>
 	<string>$(VITALSCORE_TERMS_URL)</string>
+	<key>VitalScoreAIProvider</key>
+	<string>$(VITALSCORE_AI_PROVIDER)</string>
+	<key>VitalScoreAIDialogModel</key>
+	<string>$(VITALSCORE_AI_DIALOG_MODEL)</string>
+	<key>VitalScoreAIDialogEndpoint</key>
+	<string>$(VITALSCORE_AI_DIALOG_ENDPOINT)</string>
+	<key>VitalScoreAIVoiceIdentifier</key>
+	<string>$(VITALSCORE_AI_VOICE_IDENTIFIER)</string>
 	<key>NSCameraUsageDescription</key>
 	<string>VitalScore uses the camera only for the optional eye-focus test. The test is for wellness trends and is not a medical diagnosis.</string>
 	<key>NSHealthShareUsageDescription</key>
@@ -31,7 +39,18 @@
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>VitalScore does not write to Health, but iOS requires this string when HealthKit is enabled.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>VitalScore uses the microphone for the optional voice tracking check. Audio is analyzed live for wellness trends and is not stored.</string>
+	<string>VitalScore uses the microphone for the optional voice tracking check. Audio is analyzed live for wellness trends and is not stored unless a debug export is explicitly enabled.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>VitalScore uses speech recognition during the optional AI voice conversation to transcribe your responses for wellness trend analysis.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

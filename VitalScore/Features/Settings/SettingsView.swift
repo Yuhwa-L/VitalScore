@@ -7,6 +7,10 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var showResetConfirm = false
+    #if DEBUG
+    @AppStorage(VoiceRawAudioDebugExportSettings.userDefaultsKey) private var rawWavExportEnabled = false
+    @AppStorage(VoiceRawAudioDebugExportSettings.aiUploadUserDefaultsKey) private var rawWavAIUploadEnabled = false
+    #endif
 
     var body: some View {
         NavigationStack {
@@ -32,6 +36,26 @@ struct SettingsView: View {
                         LabeledContent("Last refresh", value: lastFetched.formatted(date: .omitted, time: .standard))
                     }
                 }
+
+                #if DEBUG
+                Section("Voice Export (Debug)") {
+                    Toggle("Save raw WAV samples", isOn: $rawWavExportEnabled)
+                    Toggle("Attach WAV samples to AI analysis", isOn: $rawWavAIUploadEnabled)
+                        .disabled(!rawWavExportEnabled)
+                    Text("Development only. Requires explicit local opt-in and writes WAV files under the app Documents folder for offline openSMILE comparison.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text("The AI upload toggle sends those WAV clips to the configured local AI server after a voice test. Keep it off unless the user has agreed to raw-audio analysis.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    LabeledContent("Folder", value: VoiceRawAudioDebugExportSettings.directoryName)
+                }
+                .onChange(of: rawWavExportEnabled) { _, enabled in
+                    if !enabled {
+                        rawWavAIUploadEnabled = false
+                    }
+                }
+                #endif
 
                 Section("Notifications") {
                     Toggle("Daily reminder", isOn: .constant(true)).disabled(true)
@@ -96,8 +120,30 @@ extension Bundle {
         configuredURL(for: "VitalScoreTermsURL", fallback: "https://example.com/terms")
     }
 
+    var aiProvider: String {
+        configuredString(for: "VitalScoreAIProvider", fallback: "openai")
+    }
+
+    var aiDialogModel: String {
+        configuredString(for: "VitalScoreAIDialogModel", fallback: "gpt-5.4-mini")
+    }
+
+    var aiDialogEndpointURL: URL? {
+        guard let rawValue = infoDictionary?["VitalScoreAIDialogEndpoint"] as? String,
+              !rawValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            return nil
+        }
+        return URL(string: rawValue)
+    }
+
     private func configuredURL(for key: String, fallback: String) -> URL {
         let rawValue = infoDictionary?[key] as? String
         return URL(string: rawValue ?? fallback) ?? URL(string: fallback)!
+    }
+
+    private func configuredString(for key: String, fallback: String) -> String {
+        let rawValue = (infoDictionary?[key] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return rawValue?.isEmpty == false ? rawValue! : fallback
     }
 }

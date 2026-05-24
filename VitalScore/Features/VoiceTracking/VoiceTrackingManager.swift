@@ -1,6 +1,7 @@
 import AVFoundation
 import Combine
 import Foundation
+import Speech
 import UIKit
 
 struct VoiceTaskDefinition: Equatable {
@@ -18,6 +19,10 @@ final class VoiceTrackingManager: ObservableObject {
         case idle
         case requestingPermission
         case countdown(Int)
+        case speakingPrompt(VoiceTaskDefinition)
+        case aiSpeaking(VoiceTaskDefinition, Int, String, Bool)
+        case aiListening(VoiceTaskDefinition, Int, String)
+        case aiThinking(VoiceTaskDefinition, Int, String)
         case running
         case finished(VoiceTrackingResult)
         case failed(String)
@@ -27,73 +32,52 @@ final class VoiceTrackingManager: ObservableObject {
     @Published var liveLevel: Double = 0
     @Published var elapsedSeconds: TimeInterval = 0
     @Published var currentTaskIndex = 0
-    @Published var currentTask = VoiceTaskDefinition(
-        type: .silenceCalibration,
-        promptId: "vw_en_v1_silence",
-        title: "Quiet Calibration",
-        instruction: "Please stay quiet while we measure background noise.",
-        targetDurationSeconds: 3,
-        minimumUsableDurationSeconds: 2.5,
-        allowsEarlyFinish: false
-    )
+    @Published var currentTranscript = ""
+    @Published private(set) var conversationExchanges: [VoiceConversationExchange] = []
+    @Published private(set) var conversationSummary: VoiceConversationSummary?
+    @Published private(set) var tasks = VoiceAIConversationBuilder.fixedPromptTasks
+    @Published var currentTask = VoiceAIConversationBuilder.fixedPromptTasks[0]
 
     static let silenceThresholdDb = -45.0
     static let featureExtractorVersion = "vitalscore_on_device_acoustic_v1"
     static let modelVersion = "personal_baseline_deviation_v1"
-    static let promptVersion = "voice_check_v1"
+    static let promptVersion = VoiceAIConversationBuilder.fixedPromptVersion
     static let consentVersion = "voice_wellness_check_v1"
-    static let rawAudioRetentionPolicy = "features_only_no_raw_audio"
-
-    static let tasks: [VoiceTaskDefinition] = [
-        VoiceTaskDefinition(
-            type: .silenceCalibration,
-            promptId: "vw_en_v1_silence",
-            title: "Quiet Calibration",
-            instruction: "Please stay quiet while we measure background noise.",
-            targetDurationSeconds: 3,
-            minimumUsableDurationSeconds: 2.5,
-            allowsEarlyFinish: false
-        ),
-        VoiceTaskDefinition(
-            type: .sustainedVowelAFirst,
-            promptId: "vw_en_v1_ah_1",
-            title: "Say Ahh",
-            instruction: "Take a normal breath and say ahhh in your normal voice until the timer ends.",
-            targetDurationSeconds: 5,
-            minimumUsableDurationSeconds: 4,
-            allowsEarlyFinish: true
-        ),
-        VoiceTaskDefinition(
-            type: .sustainedVowelASecond,
-            promptId: "vw_en_v1_ah_2",
-            title: "Repeat Ahh",
-            instruction: "Say ahhh one more time in the same comfortable voice.",
-            targetDurationSeconds: 5,
-            minimumUsableDurationSeconds: 4,
-            allowsEarlyFinish: true
-        ),
-        VoiceTaskDefinition(
-            type: .counting,
-            promptId: "vw_en_v1_count_1_10",
-            title: "Counting",
-            instruction: "Count from 1 to 10 at a normal pace.",
-            targetDurationSeconds: 6,
-            minimumUsableDurationSeconds: 4,
-            allowsEarlyFinish: true
-        ),
-        VoiceTaskDefinition(
-            type: .fixedReading,
-            promptId: "vw_en_v1_reading_001",
-            title: "Read Aloud",
-            instruction: "Read this in your normal voice: The morning light moved across the quiet city as people walked outside.",
-            targetDurationSeconds: 18,
-            minimumUsableDurationSeconds: 10,
-            allowsEarlyFinish: true
-        )
+    static var rawAudioRetentionPolicy: String {
+        VoiceRawAudioDebugExportSettings.rawAudioRetentionPolicy
+    }
+    static let aiConversationMaxTurns = VoiceAIConversationBuilder.advancedConversationQuestionCount
+    static let aiConversationTurnDurationSeconds: TimeInterval = 30
+    static let aiConversationAutoSendDelaySeconds: TimeInterval = 2.0
+    static let aiConversationMinimumReplySeconds: TimeInterval = 2.5
+    static let aiConversationMinimumAutoSendWordCount = 3
+    static let aiConversationSpeechDbThreshold = -48.0
+    static let speechContextualStrings = [
+        "VitalScore",
+        "energy",
+        "focus",
+        "stress",
+        "sleep",
+        "rest",
+        "tired",
+        "fatigue",
+        "workload",
+        "hydration",
+        "hydrated",
+        "routine",
+        "environment",
+        "calm",
+        "steady",
+        "busy",
+        "morning",
+        "afternoon",
+        "evening"
     ]
+    private(set) var promptTag = VoiceAIConversationBuilder.fixedPromptTag
+    private(set) var activePromptVersion = VoiceAIConversationBuilder.fixedPromptVersion
 
     var totalTargetDurationSeconds: TimeInterval {
-        Self.tasks.reduce(0) { $0 + $1.targetDurationSeconds }
+        tasks.reduce(0) { $0 + $1.targetDurationSeconds }
     }
 
     private let audioEngine = AVAudioEngine()
@@ -108,15 +92,44 @@ final class VoiceTrackingManager: ObservableObject {
     private var sessionSampleRate = 0.0
     private var sessionChannels = 1
     private var sessionMicrophoneRoute = "unknown"
+    private var spokenPromptIds: Set<String> = []
+    private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+    private var speechRecognitionRequest: SFSpeechAudioBufferRecognitionRequest?
+    private var speechRecognitionTask: SFSpeechRecognitionTask?
+    private var speechRecognitionGeneration = 0
+    private var speechPauseTimer: Timer?
+    private var conversationRecordedSeconds: TimeInterval = 0
+    private var conversationTurnStartedAt: Date?
+    private var conversationTurnFrameStartIndex = 0
+    private var lastConversationSpeechAt: Date?
+    private var conversationSpeechDetected = false
+    private let rawAudioDebugExporter = VoiceRawAudioDebugExporter()
 
-    func start() {
-        reset()
+    func start(conversationPlan: VoiceAIConversationPlan? = nil) {
+        resetRecordingState()
+        if let conversationPlan {
+            tasks = VoiceAIConversationBuilder.tasks(for: conversationPlan)
+            promptTag = conversationPlan.promptTag
+            activePromptVersion = conversationPlan.source == "fixed_prompt"
+                ? VoiceAIConversationBuilder.fixedPromptVersion
+                : VoiceAIConversationBuilder.promptVersion
+        } else {
+            let fixedPlan = VoiceAIConversationBuilder.fixedPromptPlan()
+            tasks = VoiceAIConversationBuilder.tasks(for: fixedPlan)
+            promptTag = fixedPlan.promptTag
+            activePromptVersion = VoiceAIConversationBuilder.fixedPromptVersion
+        }
+        currentTask = tasks[0]
         phase = .requestingPermission
         AVAudioApplication.requestRecordPermission { [weak self] granted in
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 if granted {
-                    self.startCountdown()
+                    if self.tasks.contains(where: { $0.type == .guidedConversation }) {
+                        self.requestSpeechRecognitionPermission()
+                    } else {
+                        self.startCountdown()
+                    }
                 } else {
                     self.phase = .failed("Microphone access is required to run voice tracking.")
                 }
@@ -132,8 +145,123 @@ final class VoiceTrackingManager: ObservableObject {
     }
 
     func finishEarly() {
-        guard case .running = phase, currentTask.allowsEarlyFinish else { return }
-        completeCurrentTaskAndAdvance()
+        switch phase {
+        case .running where currentTask.allowsEarlyFinish:
+            completeCurrentTaskAndAdvance()
+        case .aiListening where currentTask.allowsEarlyFinish:
+            completeCurrentConversationTurn()
+        default:
+            return
+        }
+    }
+
+    func resetCurrentAIResponse() {
+        guard case .aiListening(let task, let turnIndex, let aiPrompt) = phase,
+              task.promptId == currentTask.promptId
+        else { return }
+
+        let resetAt = Date()
+        speechPauseTimer?.invalidate()
+        speechPauseTimer = nil
+        taskTimer?.invalidate()
+        stopSpeechRecognition(cancel: true)
+        rawAudioDebugExporter.finishActiveSample(
+            endedAt: resetAt,
+            durationSeconds: nil,
+            status: "discarded"
+        )
+
+        if conversationTurnFrameStartIndex < currentFrames.count {
+            currentFrames.removeSubrange(conversationTurnFrameStartIndex..<currentFrames.count)
+        }
+
+        currentTranscript = ""
+        liveLevel = 0
+        elapsedSeconds = 0
+        conversationTurnStartedAt = resetAt
+        lastConversationSpeechAt = nil
+        conversationSpeechDetected = false
+        conversationTurnFrameStartIndex = currentFrames.count
+        rawAudioDebugExporter.beginSample(task: task, turnIndex: turnIndex, startedAt: resetAt)
+        phase = .aiListening(task, turnIndex, aiPrompt)
+        startSpeechRecognition()
+
+        taskTimer = Timer.scheduledTimer(withTimeInterval: Self.aiConversationTurnDurationSeconds, repeats: false) { [weak self] _ in
+            self?.completeCurrentConversationTurn()
+        }
+    }
+
+    func promptSpeechFinished() {
+        guard case .speakingPrompt(let task) = phase,
+              task.promptId == currentTask.promptId
+        else { return }
+        beginCurrentTaskRecording()
+    }
+
+    func aiSpeechFinished() {
+        guard case .aiSpeaking(let task, let turnIndex, let message, let shouldListenAfter) = phase,
+              task.promptId == currentTask.promptId
+        else { return }
+
+        if shouldListenAfter {
+            beginAIListeningTurn(task: task, turnIndex: turnIndex, aiPrompt: message)
+        } else {
+            finishAIConversationTask()
+        }
+    }
+
+    func aiReplyReady(_ response: VoiceAIChatTurnResponse, for turnIndex: Int) {
+        guard case .aiThinking(let task, let currentTurnIndex, let latestTranscript) = phase,
+              currentTurnIndex == turnIndex,
+              task.promptId == currentTask.promptId
+        else { return }
+
+        let normalized = VoiceAIConversationBuilder.normalizedChatReply(
+            response,
+            turnIndex: turnIndex,
+            maxTurns: Self.aiConversationMaxTurns,
+            latestUserTranscript: latestTranscript,
+            history: conversationMessages
+        )
+        let spokenReply = normalized.reply
+        let shouldContinue = normalized.shouldContinue && turnIndex < Self.aiConversationMaxTurns
+        if !shouldContinue {
+            conversationSummary = VoiceAIConversationBuilder.conversationSummary(
+                from: conversationExchanges,
+                closingReply: spokenReply,
+                source: normalized.source
+            )
+        }
+        phase = .aiSpeaking(task, shouldContinue ? turnIndex + 1 : turnIndex, spokenReply, shouldContinue)
+    }
+
+    var conversationMessages: [VoiceAIChatMessage] {
+        conversationExchanges.flatMap {
+            [
+                VoiceAIChatMessage(role: "assistant", text: $0.aiPrompt),
+                VoiceAIChatMessage(role: "user", text: $0.userTranscript)
+            ]
+        }
+    }
+
+    private func requestSpeechRecognitionPermission() {
+        SFSpeechRecognizer.requestAuthorization { [weak self] status in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                switch status {
+                case .authorized:
+                    if self.currentTask.type == .guidedConversation {
+                        self.beginSession()
+                    } else {
+                        self.startCountdown()
+                    }
+                case .denied, .restricted, .notDetermined:
+                    self.phase = .failed("Speech recognition access is required for the AI conversation.")
+                @unknown default:
+                    self.phase = .failed("Speech recognition is unavailable on this device.")
+                }
+            }
+        }
     }
 
     private func startCountdown() {
@@ -154,7 +282,7 @@ final class VoiceTrackingManager: ObservableObject {
     private func beginSession() {
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.record, mode: .measurement, options: [.duckOthers])
+            try session.setCategory(.playAndRecord, mode: .measurement, options: [.duckOthers, .defaultToSpeaker])
             try session.setActive(true, options: [])
             sessionMicrophoneRoute = session.currentRoute.inputs.first?.portType.rawValue ?? "unknown"
 
@@ -162,12 +290,16 @@ final class VoiceTrackingManager: ObservableObject {
             let format = input.outputFormat(forBus: 0)
             sessionSampleRate = format.sampleRate
             sessionChannels = Int(format.channelCount)
+            let startedAt = Date()
+            rawAudioDebugExporter.beginSession(startedAt: startedAt, inputFormat: format)
 
             if isInputTapInstalled {
                 input.removeTap(onBus: 0)
                 isInputTapInstalled = false
             }
             input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+                self?.speechRecognitionRequest?.append(buffer)
+                self?.rawAudioDebugExporter.write(buffer)
                 guard let frame = Self.frameSummary(from: buffer) else { return }
                 DispatchQueue.main.async {
                     self?.recordFrame(frame)
@@ -177,7 +309,7 @@ final class VoiceTrackingManager: ObservableObject {
 
             audioEngine.prepare()
             try audioEngine.start()
-            sessionStartedAt = Date()
+            sessionStartedAt = startedAt
             beginTask(at: 0)
         } catch {
             stopAudio()
@@ -186,18 +318,36 @@ final class VoiceTrackingManager: ObservableObject {
     }
 
     private func beginTask(at index: Int) {
-        guard Self.tasks.indices.contains(index) else {
+        guard tasks.indices.contains(index) else {
             finishSession()
             return
         }
         currentTaskIndex = index
-        currentTask = Self.tasks[index]
+        currentTask = tasks[index]
         currentFrames.removeAll()
         liveLevel = 0
         elapsedSeconds = 0
-        taskStartedAt = Date()
-        phase = .running
+        taskStartedAt = nil
 
+        if currentTask.type == .guidedConversation {
+            beginAIConversationTask()
+            return
+        }
+
+        if !spokenPromptIds.contains(currentTask.promptId) {
+            spokenPromptIds.insert(currentTask.promptId)
+            phase = .speakingPrompt(currentTask)
+            return
+        }
+
+        beginCurrentTaskRecording()
+    }
+
+    private func beginCurrentTaskRecording() {
+        let startedAt = Date()
+        taskStartedAt = startedAt
+        rawAudioDebugExporter.beginSample(task: currentTask, turnIndex: nil, startedAt: startedAt)
+        phase = .running
         progressTimer?.invalidate()
         progressTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             guard let self = self, let taskStartedAt = self.taskStartedAt else { return }
@@ -209,11 +359,97 @@ final class VoiceTrackingManager: ObservableObject {
         }
     }
 
+    private func beginAIConversationTask() {
+        conversationRecordedSeconds = 0
+        conversationTurnStartedAt = nil
+        currentTranscript = ""
+        phase = .aiSpeaking(currentTask, 1, currentTask.instruction, true)
+    }
+
+    private func beginAIListeningTurn(task: VoiceTaskDefinition, turnIndex: Int, aiPrompt: String) {
+        currentTranscript = ""
+        conversationTurnStartedAt = Date()
+        conversationTurnFrameStartIndex = currentFrames.count
+        lastConversationSpeechAt = nil
+        conversationSpeechDetected = false
+        rawAudioDebugExporter.beginSample(task: task, turnIndex: turnIndex, startedAt: conversationTurnStartedAt ?? Date())
+        phase = .aiListening(task, turnIndex, aiPrompt)
+        startSpeechRecognition()
+
+        progressTimer?.invalidate()
+        progressTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            guard let self = self, let startedAt = self.conversationTurnStartedAt else { return }
+            let currentTurnSeconds = Date().timeIntervalSince(startedAt)
+            self.elapsedSeconds = min(Self.aiConversationTurnDurationSeconds, currentTurnSeconds)
+        }
+
+        taskTimer?.invalidate()
+        taskTimer = Timer.scheduledTimer(withTimeInterval: Self.aiConversationTurnDurationSeconds, repeats: false) { [weak self] _ in
+            self?.completeCurrentConversationTurn()
+        }
+    }
+
+    private func completeCurrentConversationTurn() {
+        guard case .aiListening(let task, let turnIndex, let aiPrompt) = phase,
+              task.promptId == currentTask.promptId
+        else { return }
+
+        speechPauseTimer?.invalidate()
+        speechPauseTimer = nil
+        let completedAt = Date()
+        let startedAt = conversationTurnStartedAt ?? completedAt
+        let duration = max(0, completedAt.timeIntervalSince(startedAt))
+        conversationRecordedSeconds = min(currentTask.targetDurationSeconds, conversationRecordedSeconds + duration)
+        elapsedSeconds = conversationRecordedSeconds
+
+        taskTimer?.invalidate()
+        progressTimer?.invalidate()
+        stopSpeechRecognition(cancel: false)
+        rawAudioDebugExporter.finishActiveSample(
+            endedAt: completedAt,
+            durationSeconds: duration
+        )
+
+        let transcript = currentTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        conversationExchanges.append(
+            VoiceConversationExchange(
+                turnIndex: turnIndex,
+                aiPrompt: aiPrompt,
+                userTranscript: transcript,
+                userResponseStartedAt: startedAt,
+                userResponseEndedAt: completedAt,
+                responseDurationSeconds: duration,
+                source: "ios_speech_recognition"
+            )
+        )
+        phase = .aiThinking(task, turnIndex, transcript)
+    }
+
+    private func finishAIConversationTask() {
+        taskTimer?.invalidate()
+        progressTimer?.invalidate()
+        stopSpeechRecognition(cancel: true)
+
+        let noiseFloor = completedTasks.first(where: { $0.taskType == .silenceCalibration })?.averageVolumeDb
+        completedTasks.append(Self.analyzeTask(
+            currentTask,
+            frames: currentFrames,
+            durationSeconds: max(conversationRecordedSeconds, elapsedSeconds),
+            noiseFloorDb: noiseFloor
+        ))
+        beginTask(at: currentTaskIndex + 1)
+    }
+
     private func completeCurrentTaskAndAdvance() {
         guard case .running = phase else { return }
         let duration = taskStartedAt.map { Date().timeIntervalSince($0) } ?? currentTask.targetDurationSeconds
+        let completedAt = Date()
         taskTimer?.invalidate()
         progressTimer?.invalidate()
+        rawAudioDebugExporter.finishActiveSample(
+            endedAt: completedAt,
+            durationSeconds: duration
+        )
 
         let noiseFloor = completedTasks.first(where: { $0.taskType == .silenceCalibration })?.averageVolumeDb
         completedTasks.append(Self.analyzeTask(
@@ -226,19 +462,49 @@ final class VoiceTrackingManager: ObservableObject {
     }
 
     private func recordFrame(_ frame: VoiceFrameSummary) {
-        guard case .running = phase else { return }
+        switch phase {
+        case .running, .aiListening:
+            break
+        default:
+            return
+        }
         currentFrames.append(frame)
         liveLevel = Self.normalizedLevel(from: frame.averagePowerDb)
+        updateConversationPauseDetection(with: frame)
+    }
+
+    private func updateConversationPauseDetection(with frame: VoiceFrameSummary) {
+        guard case .aiListening = phase else { return }
+
+        let now = Date()
+        if frame.averagePowerDb > Self.aiConversationSpeechDbThreshold {
+            lastConversationSpeechAt = now
+            conversationSpeechDetected = true
+            return
+        }
+
+        guard conversationSpeechDetected,
+              shouldAutoSubmitConversationNow(now: now)
+        else { return }
+
+        completeCurrentConversationTurn()
     }
 
     private func finishSession() {
         stopAudio()
         invalidateTimers()
         let duration = sessionStartedAt.map { Date().timeIntervalSince($0) } ?? totalTargetDurationSeconds
-        phase = .finished(Self.makeResult(from: completedTasks, durationSeconds: duration))
+        phase = .finished(Self.makeResult(
+            from: completedTasks,
+            durationSeconds: duration,
+            conversationExchanges: conversationExchanges,
+            conversationSummary: conversationSummary
+        ))
     }
 
     private func stopAudio() {
+        stopSpeechRecognition(cancel: true)
+        rawAudioDebugExporter.finishSession()
         if isInputTapInstalled {
             audioEngine.inputNode.removeTap(onBus: 0)
             isInputTapInstalled = false
@@ -249,9 +515,133 @@ final class VoiceTrackingManager: ObservableObject {
         try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
     }
 
+    private func startSpeechRecognition() {
+        stopSpeechRecognition(cancel: true)
+        guard let speechRecognizer, speechRecognizer.isAvailable else {
+            currentTranscript = ""
+            return
+        }
+
+        speechRecognitionGeneration += 1
+        let generation = speechRecognitionGeneration
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        configureSpeechRecognitionRequest(request, recognizer: speechRecognizer)
+        speechRecognitionRequest = request
+        speechRecognitionTask = speechRecognizer.recognitionTask(with: request) { [weak self] result, error in
+            DispatchQueue.main.async {
+                guard let self = self,
+                      self.speechRecognitionGeneration == generation
+                else { return }
+                if let result {
+                    let transcript = Self.liveTranscriptText(from: result.bestTranscription)
+                    if !transcript.isEmpty {
+                        self.currentTranscript = transcript
+                        self.scheduleConversationAutoSendIfUseful(for: transcript)
+                    }
+                }
+                if error != nil {
+                    self.speechRecognitionRequest = nil
+                    self.speechRecognitionTask = nil
+                }
+            }
+        }
+    }
+
+    private func configureSpeechRecognitionRequest(
+        _ request: SFSpeechAudioBufferRecognitionRequest,
+        recognizer: SFSpeechRecognizer
+    ) {
+        request.shouldReportPartialResults = true
+        request.taskHint = .dictation
+        request.contextualStrings = Self.speechContextualStrings
+        request.addsPunctuation = false
+        if recognizer.supportsOnDeviceRecognition {
+            request.requiresOnDeviceRecognition = true
+        }
+    }
+
+    private static func liveTranscriptText(from transcription: SFTranscription) -> String {
+        let segmentText = transcription.segments
+            .map(\.substring)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !segmentText.isEmpty {
+            return segmentText
+        }
+        return transcription.formattedString.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func scheduleConversationAutoSendIfUseful(for transcript: String) {
+        guard case .aiListening = phase else { return }
+        guard Self.conversationTranscriptWordCount(transcript) >= Self.aiConversationMinimumAutoSendWordCount else { return }
+
+        speechPauseTimer?.invalidate()
+        speechPauseTimer = Timer.scheduledTimer(
+            withTimeInterval: Self.aiConversationAutoSendDelaySeconds,
+            repeats: false
+        ) { [weak self] _ in
+            DispatchQueue.main.async {
+                guard let self = self,
+                      case .aiListening = self.phase,
+                      self.shouldAutoSubmitConversationNow()
+                else { return }
+                self.completeCurrentConversationTurn()
+            }
+        }
+    }
+
+    private func shouldAutoSubmitConversationNow(now: Date = Date()) -> Bool {
+        guard conversationSpeechDetected,
+              let startedAt = conversationTurnStartedAt,
+              let lastConversationSpeechAt
+        else { return false }
+
+        return Self.shouldAutoSubmitConversationTranscript(
+            currentTranscript,
+            elapsedSinceTurnStart: now.timeIntervalSince(startedAt),
+            elapsedSinceLastSpeech: now.timeIntervalSince(lastConversationSpeechAt)
+        )
+    }
+
+    static func shouldAutoSubmitConversationTranscript(
+        _ transcript: String,
+        elapsedSinceTurnStart: TimeInterval,
+        elapsedSinceLastSpeech: TimeInterval
+    ) -> Bool {
+        conversationTranscriptWordCount(transcript) >= aiConversationMinimumAutoSendWordCount
+            && elapsedSinceTurnStart >= aiConversationMinimumReplySeconds
+            && elapsedSinceLastSpeech >= aiConversationAutoSendDelaySeconds
+    }
+
+    static func conversationTranscriptWordCount(_ transcript: String) -> Int {
+        transcript.split { $0.isWhitespace || $0.isNewline }.count
+    }
+
+    private func stopSpeechRecognition(cancel: Bool) {
+        speechPauseTimer?.invalidate()
+        speechPauseTimer = nil
+        speechRecognitionGeneration += 1
+        speechRecognitionRequest?.endAudio()
+        if cancel {
+            speechRecognitionTask?.cancel()
+        } else {
+            speechRecognitionTask?.finish()
+        }
+        speechRecognitionRequest = nil
+        speechRecognitionTask = nil
+    }
+
     private func reset() {
+        let fixedPlan = VoiceAIConversationBuilder.fixedPromptPlan()
+        tasks = VoiceAIConversationBuilder.tasks(for: fixedPlan)
+        promptTag = fixedPlan.promptTag
+        activePromptVersion = VoiceAIConversationBuilder.fixedPromptVersion
+        resetRecordingState()
+    }
+
+    private func resetRecordingState() {
         currentTaskIndex = 0
-        currentTask = Self.tasks[0]
+        currentTask = tasks[0]
         currentFrames.removeAll()
         completedTasks.removeAll()
         liveLevel = 0
@@ -261,24 +651,37 @@ final class VoiceTrackingManager: ObservableObject {
         sessionSampleRate = 0
         sessionChannels = 1
         sessionMicrophoneRoute = "unknown"
+        spokenPromptIds.removeAll()
+        currentTranscript = ""
+        conversationExchanges.removeAll()
+        conversationSummary = nil
+        conversationRecordedSeconds = 0
+        conversationTurnStartedAt = nil
+        conversationTurnFrameStartIndex = 0
+        lastConversationSpeechAt = nil
+        conversationSpeechDetected = false
+        stopSpeechRecognition(cancel: true)
+        rawAudioDebugExporter.reset()
     }
 
     private func invalidateTimers() {
         countdownTimer?.invalidate()
         progressTimer?.invalidate()
         taskTimer?.invalidate()
+        speechPauseTimer?.invalidate()
         countdownTimer = nil
         progressTimer = nil
         taskTimer = nil
+        speechPauseTimer = nil
     }
 
     func makeSessionMetadata(result: VoiceTrackingResult, experimentTag: String) -> VoiceTrackingSession {
         VoiceTrackingSession(
             date: result.completedAt,
             experimentTag: experimentTag,
-            promptTag: VoiceTrackingView.promptTag,
+            promptTag: promptTag,
             language: "en-US",
-            promptVersion: Self.promptVersion,
+            promptVersion: activePromptVersion,
             deviceModel: UIDevice.current.model,
             osVersion: UIDevice.current.systemName + " " + UIDevice.current.systemVersion,
             microphoneRoute: sessionMicrophoneRoute,
@@ -286,6 +689,9 @@ final class VoiceTrackingManager: ObservableObject {
             channels: sessionChannels,
             consentVersion: Self.consentVersion,
             rawAudioRetentionPolicy: Self.rawAudioRetentionPolicy,
+            rawAudioDebugManifestPath: VoiceRawAudioDebugExportSettings.isAIUploadEnabled
+                ? rawAudioDebugExporter.manifestURL?.path
+                : nil,
             baselineVersion: "personal_median_mad_v1",
             featureExtractorVersion: Self.featureExtractorVersion,
             modelVersion: Self.modelVersion,
@@ -293,7 +699,12 @@ final class VoiceTrackingManager: ObservableObject {
         )
     }
 
-    static func makeResult(from tasks: [VoiceTaskAnalysis], durationSeconds: TimeInterval) -> VoiceTrackingResult {
+    static func makeResult(
+        from tasks: [VoiceTaskAnalysis],
+        durationSeconds: TimeInterval,
+        conversationExchanges: [VoiceConversationExchange] = [],
+        conversationSummary: VoiceConversationSummary? = nil
+    ) -> VoiceTrackingResult {
         let speechTasks = tasks.filter { $0.taskType != .silenceCalibration }
         let quality = average(tasks.map { $0.qualityScore }) ?? 0
         let usable = tasks.allSatisfy(\.usable)
@@ -323,6 +734,8 @@ final class VoiceTrackingManager: ObservableObject {
             usable: usable,
             qualityIssues: issues,
             taskAnalyses: tasks,
+            conversationExchanges: conversationExchanges,
+            conversationSummary: conversationSummary,
             eGeMAPS: eGeMAPS,
             baselineSessionsUsed: 0,
             baselineStatus: "building_baseline",
@@ -460,6 +873,7 @@ final class VoiceTrackingManager: ObservableObject {
         return VoiceTaskAnalysis(
             taskType: task.type,
             promptId: task.promptId,
+            promptText: task.instruction,
             targetDurationSeconds: task.targetDurationSeconds,
             durationSeconds: durationSeconds,
             sampleCount: frames.count,
@@ -658,40 +1072,38 @@ final class VoiceTrackingManager: ObservableObject {
             $0.taskType == .sustainedVowelAFirst || $0.taskType == .sustainedVowelASecond
         }
         let speechTasks = result.taskAnalyses.filter {
-            $0.taskType == .counting || $0.taskType == .fixedReading
+            $0.taskType == .counting || $0.taskType == .fixedReading || $0.taskType == .guidedConversation
         }
         return [
-            "vowel_stability": average(vowelTasks.map(\.volumeStdDevDb)) ?? result.volumeStdDevDb,
-            "vowel_clarity": average(vowelTasks.map(\.zeroCrossingRate)) ?? 0,
+            "vowel_loudness_stability": average(vowelTasks.map(\.volumeStdDevDb)) ?? result.volumeStdDevDb,
             "speech_pause_ratio": average(speechTasks.map(\.silenceRatio)) ?? result.silenceRatio,
             "speech_energy": average(speechTasks.map(\.averageVolumeDb)) ?? result.averageVolumeDb,
-            "speech_rhythm": average(speechTasks.map(\.volumeStdDevDb)) ?? result.volumeStdDevDb,
+            "speech_energy_variability": average(speechTasks.map(\.volumeStdDevDb)) ?? result.volumeStdDevDb,
             "quality": result.overallQualityScore,
-            "f0_stability": result.eGeMAPS?.f0StdDevHz ?? 0,
-            "jitter": result.eGeMAPS?.jitterLocalPercent ?? 0,
-            "shimmer": result.eGeMAPS?.shimmerLocalDb ?? 0,
-            "hnr": result.eGeMAPS?.hnrMeanDb ?? 0,
-            "spectral_flux": result.eGeMAPS?.spectralFlux ?? 0
+            "loudness_mean_proxy": result.eGeMAPS?.loudnessMeanDb ?? result.averageVolumeDb,
+            "loudness_variability_proxy": result.eGeMAPS?.loudnessStdDevDb ?? result.volumeStdDevDb,
+            "spectral_flux_proxy": result.eGeMAPS?.spectralFlux ?? 0,
+            "voiced_segment_rate_proxy": result.eGeMAPS?.voicedSegmentsPerSecond ?? 0,
+            "mean_voiced_length_proxy": result.eGeMAPS?.meanVoicedSegmentLengthSeconds ?? 0
         ]
     }
 
     private static func weightedDeviation(_ deviations: [(name: String, deviation: Double)]) -> Double {
         guard !deviations.isEmpty else { return 0 }
         let weights: [String: Double] = [
-            "vowel_stability": 0.25,
-            "vowel_clarity": 0.15,
-            "speech_pause_ratio": 0.25,
-            "speech_energy": 0.15,
-            "speech_rhythm": 0.15,
-            "quality": 0.05,
-            "f0_stability": 0.12,
-            "jitter": 0.10,
-            "shimmer": 0.10,
-            "hnr": 0.10,
-            "spectral_flux": 0.08
+            "vowel_loudness_stability": 0.20,
+            "speech_pause_ratio": 0.18,
+            "speech_energy": 0.14,
+            "speech_energy_variability": 0.14,
+            "quality": 0.12,
+            "loudness_mean_proxy": 0.08,
+            "loudness_variability_proxy": 0.06,
+            "spectral_flux_proxy": 0.04,
+            "voiced_segment_rate_proxy": 0.02,
+            "mean_voiced_length_proxy": 0.02
         ]
         let weighted = deviations.reduce((score: 0.0, weight: 0.0)) { partial, item in
-            let weight = weights[item.name] ?? 0.1
+            guard let weight = weights[item.name] else { return partial }
             return (partial.score + item.deviation * weight, partial.weight + weight)
         }
         return weighted.weight > 0 ? weighted.score / weighted.weight : 0
@@ -704,26 +1116,26 @@ final class VoiceTrackingManager: ObservableObject {
         else { amount = "mild" }
 
         switch featureName {
-        case "vowel_stability":
+        case "vowel_loudness_stability":
             return "\(amount.capitalized) change in sustained-vowel stability versus baseline."
-        case "vowel_clarity":
-            return "\(amount.capitalized) change in vowel acoustic clarity versus baseline."
         case "speech_pause_ratio":
             return "\(amount.capitalized) change in pause time versus baseline."
         case "speech_energy":
             return "\(amount.capitalized) change in speaking energy versus baseline."
-        case "speech_rhythm":
+        case "speech_energy_variability":
             return "\(amount.capitalized) change in speech rhythm versus baseline."
-        case "f0_stability":
-            return "\(amount.capitalized) change in pitch stability versus baseline."
-        case "jitter":
-            return "\(amount.capitalized) change in cycle-to-cycle pitch variation versus baseline."
-        case "shimmer":
-            return "\(amount.capitalized) change in amplitude shimmer versus baseline."
-        case "hnr":
-            return "\(amount.capitalized) change in harmonic voice quality versus baseline."
-        case "spectral_flux":
-            return "\(amount.capitalized) change in frame-to-frame spectral movement versus baseline."
+        case "quality":
+            return "\(amount.capitalized) change in recording quality versus baseline."
+        case "loudness_mean_proxy":
+            return "\(amount.capitalized) change in loudness proxy versus baseline."
+        case "loudness_variability_proxy":
+            return "\(amount.capitalized) change in loudness variability versus baseline."
+        case "spectral_flux_proxy":
+            return "\(amount.capitalized) change in energy movement proxy versus baseline."
+        case "voiced_segment_rate_proxy":
+            return "\(amount.capitalized) change in voiced segment rate versus baseline."
+        case "mean_voiced_length_proxy":
+            return "\(amount.capitalized) change in voiced segment length versus baseline."
         default:
             return "\(amount.capitalized) voice-signal change versus baseline."
         }

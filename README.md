@@ -89,6 +89,51 @@ Machine-specific signing and service URLs live in `.env`, which is intentionally
 
 The generated `Config/Local.xcconfig` is also ignored. Xcode reads `Config/VitalScore.xcconfig`, which contains safe defaults and optionally includes `Config/Local.xcconfig` when present.
 
+## Voice checks
+
+The default Voice button runs the fixed prompt sequence: quiet calibration, first sustained vowel, repeated sustained vowel, counting from 1 to 10, and the read-aloud sentence. The prompt text is shown on screen before each recording. Audio is analyzed on device for acoustic features, and raw audio is not stored unless the debug-only WAV export is explicitly enabled.
+
+The AI-guided freestyle talk is a separate advanced feature on the dashboard. It skips the fixed acoustic prompts and starts directly with a short conversational AI question. The app speaks, listens to the user's response, transcribes it with iOS Speech, auto-sends after a short pause or when the user taps Send Now, asks `/ai/voice-chat-turn` for the next short reply, and repeats up to three quick turns. Provider keys stay in `.env`; the iOS app only receives `VITALSCORE_AI_DIALOG_ENDPOINT`, provider, model config, and optional voice identifier.
+
+```bash
+./scripts/generate-local-config.sh
+xcodegen generate
+python3 scripts/ai-dialog-server.py
+```
+
+For simulator testing, use `VITALSCORE_AI_DIALOG_ENDPOINT=http://127.0.0.1:8787/ai/voice-conversation`. For a physical iPhone, run the server on an address the phone can reach, such as `VITALSCORE_AI_DIALOG_HOST=0.0.0.0` and `VITALSCORE_AI_DIALOG_ENDPOINT=http://<your-mac-lan-ip>:8787/ai/voice-conversation`, then regenerate `Config/Local.xcconfig`.
+
+The local server posts to OpenAI's Responses API with strict JSON schemas and returns `VoiceAIConversationPlan` for setup, `VoiceAIChatTurnResponse` for live turn replies, and `VoiceAIAnalysisResponse` for post-session analysis. Prompts, replies, and analysis are constrained to wellness reflection and must not diagnose, treat, predict disease, or claim causation.
+
+When `Settings > Voice Export (Debug) > Save raw WAV samples` and `Attach WAV samples to AI analysis` are both enabled, the app includes the debug WAV clips in the `/ai/voice-analysis` request. The local server then uses `VITALSCORE_AI_AUDIO_ANALYSIS_MODEL` (`gpt-audio-1.5` by default) through OpenAI Chat Completions so GPT can inspect the audio alongside the structured acoustic features. This mode is development-only and should only be used after explicit raw-audio consent.
+
+Set `VITALSCORE_AI_VOICE_IDENTIFIER` in `.env` to force a specific iOS text-to-speech voice by identifier or name substring, such as `Ava` or `Samantha`. If the selected voice is not installed on the iPhone, iOS falls back to the best available enhanced or premium English voice.
+
+## Multimodal analysis exports
+
+After each eye-focus or voice test, the app writes an analysis-ready JSON file plus `analysis_exports.jsonl` under the app's Documents directory at `VitalScoreAnalysisExports/`. Each export includes schema version, available/missing modalities, privacy notes, daily health summary, eye or voice result payload, prompt text, question/task background, AI conversation transcripts when present, and a flattened feature vector suitable for later LLM input. Raw audio and raw camera frames are not stored.
+
+After each voice session, if `VITALSCORE_AI_DIALOG_ENDPOINT` is configured, the app posts the completed export JSON to the local `/ai/voice-analysis` endpoint. The request includes the stored export, the background/rationale for each voice prompt, and recent voice-session summaries. The AI response is saved beside the export as `*_voice_ai_analysis_*.json` and indexed in `ai_analysis_results.jsonl`; if the endpoint is unavailable, the local export remains available for later processing.
+
+### Voice feature validation workflow
+
+Debug builds include an internal opt-in setting, `Settings > Voice Export (Debug) > Save raw WAV samples`. When enabled, the app writes local development-only WAV files and a `manifest.json` under the app Documents folder at `VitalScoreDebugVoiceWAV/`. The separate `Attach WAV samples to AI analysis` toggle additionally sends those clips to the configured local AI server after each voice test. These modes are only for local feature validation and should not be shipped, uploaded, or used without explicit consent.
+
+To compare those samples with canonical openSMILE eGeMAPS, install openSMILE locally so `SMILExtract` and `eGeMAPSv02.conf` are available, then run:
+
+```bash
+python3 scripts/compare-opensmile-egemaps.py \
+  --wav-dir /path/to/VitalScoreDebugVoiceWAV/session-folder \
+  --app-export /path/to/VitalScoreAnalysisExports/latest_voice_tracking_export.json \
+  --output opensmile_comparison_output/comparison.json
+```
+
+Current feature confidence is intentionally conservative:
+
+- Score eligible proxy: loudness mean/variation, energy movement proxy, voiced segment rate, mean voiced length.
+- Proxy but not score weighted yet: F0 mean/std and HNR.
+- Unsupported until canonical comparison: jitter, shimmer, MFCC placeholders, alpha ratio, Hammarberg index, spectral slopes.
+
 ## Wellness score (current weights)
 
 `WellnessScoreEngine` weights five inputs against the rolling 7-day baseline:

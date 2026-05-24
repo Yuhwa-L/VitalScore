@@ -27,7 +27,10 @@ struct VoiceAnalysisDashboardView: View {
                     emptyState
                 } else {
                     summaryGrid
+                    baselineReadinessPanel
                     scoreTrend
+                    topDriversPanel
+                    transcriptPanel
                     if let features = latestSession?.result.eGeMAPS {
                         eGeMAPSPanel(features)
                     }
@@ -89,6 +92,60 @@ struct VoiceAnalysisDashboardView: View {
         .panelStyle()
     }
 
+    private var baselineReadinessPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Personal Baseline v2")
+                .font(.headline)
+            Text("Wellness reflection only. This dashboard tracks personal change and avoids medical interpretation.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            ProgressView(value: min(Double(usableSessions.count), 7), total: 7)
+                .tint(.teal)
+            HStack {
+                compactMetric("Baseline", "\(min(usableSessions.count, 7))/7", "usable")
+                compactMetric("Long term", "\(min(usableSessions.count, 30))/30", "usable")
+                compactMetric("Status", latestSession?.result.baselineStatus.replacingOccurrences(of: "_", with: " "), "")
+            }
+        }
+        .panelStyle()
+    }
+
+    private var topDriversPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Top Changed Acoustic Drivers")
+                .font(.headline)
+            ForEach(latestSession?.result.topDrivers ?? [], id: \.self) { driver in
+                Text(driver)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if latestSession?.result.topDrivers.isEmpty != false {
+                Text("Top drivers appear after enough usable personal baseline sessions.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .panelStyle()
+    }
+
+    private var transcriptPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Transcript-Derived Speech")
+                .font(.headline)
+            HStack(spacing: 12) {
+                compactMetric("Words", "\(latestTranscriptStats.wordCount)", "")
+                compactMetric("Speech rate", format(latestTranscriptStats.wordsPerMinute, digits: 0), "wpm")
+                compactMetric("Turns", "\(latestTranscriptStats.turnCount)", "")
+            }
+            if latestTranscriptStats.turnCount == 0 {
+                Text("No AI conversation transcript was captured for the latest session.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .panelStyle()
+    }
+
     private func eGeMAPSPanel(_ features: VoiceEGeMAPSFeatureSet) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -103,38 +160,41 @@ struct VoiceAnalysisDashboardView: View {
             featureSection(
                 "Frequency",
                 rows: [
-                    ("F0 mean", format(features.f0MeanHz, digits: 0), "Hz"),
-                    ("F0 variation", format(features.f0StdDevHz, digits: 1), "Hz"),
-                    ("Jitter local", format(features.jitterLocalPercent, digits: 2), "%")
+                    featureRow("f0MeanHz", "F0 mean", format(features.f0MeanHz, digits: 0), "Hz"),
+                    featureRow("f0StdDevHz", "F0 variation", format(features.f0StdDevHz, digits: 1), "Hz"),
+                    featureRow("jitterLocalPercent", "Jitter local", format(features.jitterLocalPercent, digits: 2), "%")
                 ]
             )
             featureSection(
                 "Energy",
                 rows: [
-                    ("Loudness mean", format(features.loudnessMeanDb, digits: 1), "dB"),
-                    ("Loudness variation", format(features.loudnessStdDevDb, digits: 1), "dB"),
-                    ("Shimmer local", format(features.shimmerLocalDb, digits: 2), "dB")
+                    featureRow("loudnessMeanDb", "Loudness mean", format(features.loudnessMeanDb, digits: 1), "dB"),
+                    featureRow("loudnessStdDevDb", "Loudness variation", format(features.loudnessStdDevDb, digits: 1), "dB"),
+                    featureRow("shimmerLocalDb", "Shimmer local", format(features.shimmerLocalDb, digits: 2), "dB")
                 ]
             )
             featureSection(
                 "Spectral and Voice Quality",
                 rows: [
-                    ("HNR mean", format(features.hnrMeanDb, digits: 1), "dB"),
-                    ("Alpha ratio", format(features.alphaRatioDb, digits: 1), "dB"),
-                    ("Hammarberg index", format(features.hammarbergIndexDb, digits: 1), "dB"),
-                    ("Spectral flux", format(features.spectralFlux, digits: 3), "")
+                    featureRow("hnrMeanDb", "HNR mean", format(features.hnrMeanDb, digits: 1), "dB"),
+                    featureRow("alphaRatioDb", "Alpha ratio", format(features.alphaRatioDb, digits: 1), "dB"),
+                    featureRow("hammarbergIndexDb", "Hammarberg index", format(features.hammarbergIndexDb, digits: 1), "dB"),
+                    featureRow("spectralFlux", "Spectral flux", format(features.spectralFlux, digits: 3), "")
                 ]
             )
             featureSection(
                 "Cepstral and Temporal",
                 rows: [
-                    ("MFCC 1", format(features.mfcc1Mean, digits: 2), ""),
-                    ("MFCC 2", format(features.mfcc2Mean, digits: 2), ""),
-                    ("MFCC 3", format(features.mfcc3Mean, digits: 2), ""),
-                    ("Voiced segments", format(features.voicedSegmentsPerSecond, digits: 2), "/s"),
-                    ("Mean voiced length", format(features.meanVoicedSegmentLengthSeconds, digits: 2), "s")
+                    featureRow("mfcc1Mean", "MFCC 1", format(features.mfcc1Mean, digits: 2), ""),
+                    featureRow("mfcc2Mean", "MFCC 2", format(features.mfcc2Mean, digits: 2), ""),
+                    featureRow("mfcc3Mean", "MFCC 3", format(features.mfcc3Mean, digits: 2), ""),
+                    featureRow("voicedSegmentsPerSecond", "Voiced segments", format(features.voicedSegmentsPerSecond, digits: 2), "/s"),
+                    featureRow("meanVoicedSegmentLengthSeconds", "Mean voiced length", format(features.meanVoicedSegmentLengthSeconds, digits: 2), "s")
                 ]
             )
+            Text("Score uses validated fields or stable proxies only; unsupported feature placeholders are excluded.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
         .panelStyle()
     }
@@ -214,7 +274,7 @@ struct VoiceAnalysisDashboardView: View {
 
     private var longTermPanel: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Long-Term Dashboard")
+            Text("Long-Term Analysis")
                 .font(.headline)
             Text(longTermStatus)
                 .font(.subheadline)
@@ -232,20 +292,43 @@ struct VoiceAnalysisDashboardView: View {
         return "Collect \(max(0, 30 - usableSessions.count)) more usable sessions to unlock stable long-term trend analysis."
     }
 
-    private func featureSection(_ title: String, rows: [(String, String?, String)]) -> some View {
+    private func featureSection(_ title: String, rows: [FeatureRow]) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.subheadline.weight(.semibold))
-            ForEach(rows, id: \.0) { row in
+            ForEach(rows) { row in
                 HStack {
-                    Text(row.0)
+                    Text(row.label)
                         .foregroundStyle(.secondary)
                     Spacer()
-                    Text((row.1 ?? "--") + (row.2.isEmpty ? "" : " \(row.2)"))
+                    Text((row.value ?? "--") + (row.unit.isEmpty ? "" : " \(row.unit)"))
                         .fontWeight(.medium)
+                    validationBadge(row.validation.status)
                 }
                 .font(.caption)
             }
+        }
+    }
+
+    private func featureRow(_ key: String, _ label: String, _ value: String?, _ unit: String) -> FeatureRow {
+        FeatureRow(label: label, value: value, unit: unit, validation: VoiceFeatureValidationCatalog.validation(for: key))
+    }
+
+    private func validationBadge(_ status: VoiceFeatureValidationStatus) -> some View {
+        Text(status.displayName)
+            .font(.caption2.weight(.semibold))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(statusColor(status).opacity(0.16))
+            .foregroundStyle(statusColor(status))
+            .clipShape(Capsule())
+    }
+
+    private func statusColor(_ status: VoiceFeatureValidationStatus) -> Color {
+        switch status {
+        case .validated: return .green
+        case .proxy: return .teal
+        case .unsupported: return .orange
         }
     }
 
@@ -283,6 +366,34 @@ struct VoiceAnalysisDashboardView: View {
         guard let value = value else { return nil }
         return String(format: "%.\(digits)f", value)
     }
+
+    private var latestTranscriptStats: TranscriptStats {
+        let exchanges = latestSession?.result.conversationExchanges ?? []
+        let wordCount = exchanges.reduce(0) { $0 + $1.userTranscript.wordCount }
+        let duration = exchanges.reduce(0) { $0 + $1.responseDurationSeconds }
+        let wordsPerMinute = duration > 0 ? Double(wordCount) / duration * 60 : 0
+        return TranscriptStats(
+            turnCount: exchanges.count,
+            wordCount: wordCount,
+            durationSeconds: duration,
+            wordsPerMinute: wordsPerMinute
+        )
+    }
+}
+
+private struct FeatureRow: Identifiable {
+    var id: String { label }
+    let label: String
+    let value: String?
+    let unit: String
+    let validation: VoiceFeatureValidation
+}
+
+private struct TranscriptStats {
+    let turnCount: Int
+    let wordCount: Int
+    let durationSeconds: TimeInterval
+    let wordsPerMinute: Double
 }
 
 private extension View {
@@ -291,5 +402,11 @@ private extension View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color(.secondarySystemBackground))
             .cornerRadius(8)
+    }
+}
+
+private extension String {
+    var wordCount: Int {
+        split { $0.isWhitespace || $0.isNewline }.count
     }
 }

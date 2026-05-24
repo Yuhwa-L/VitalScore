@@ -14,6 +14,7 @@ struct VoiceTrackingSession: Codable, Identifiable {
     let channels: Int
     let consentVersion: String
     let rawAudioRetentionPolicy: String
+    let rawAudioDebugManifestPath: String?
     let baselineVersion: String
     let featureExtractorVersion: String
     let modelVersion: String
@@ -33,6 +34,7 @@ struct VoiceTrackingSession: Codable, Identifiable {
         channels: Int = 1,
         consentVersion: String = "voice_wellness_check_v1",
         rawAudioRetentionPolicy: String = "features_only_no_raw_audio",
+        rawAudioDebugManifestPath: String? = nil,
         baselineVersion: String = "personal_median_mad_v1",
         featureExtractorVersion: String = "vitalscore_on_device_acoustic_v1",
         modelVersion: String = "personal_baseline_deviation_v1",
@@ -51,6 +53,7 @@ struct VoiceTrackingSession: Codable, Identifiable {
         self.channels = channels
         self.consentVersion = consentVersion
         self.rawAudioRetentionPolicy = rawAudioRetentionPolicy
+        self.rawAudioDebugManifestPath = rawAudioDebugManifestPath
         self.baselineVersion = baselineVersion
         self.featureExtractorVersion = featureExtractorVersion
         self.modelVersion = modelVersion

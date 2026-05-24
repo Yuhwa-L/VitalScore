@@ -21,5 +21,13 @@ Packages/
 Package.pins
 Package.resolved
 
+# Python helper artifacts
+__pycache__/
+*.pyc
+
+# Local development voice debug exports
+VitalScoreDebugVoiceWAV/
+opensmile_comparison_output/
+
 # CocoaPods (unused, but defensive)
 Pods/

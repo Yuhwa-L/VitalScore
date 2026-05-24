@@ -1,0 +1,623 @@
+#!/usr/bin/env python3
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+import uuid
+from datetime import datetime, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+ENV_PATH = PROJECT_ROOT / ".env"
+OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
+OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
+MAX_BODY_BYTES = 12_000_000
+MAX_AUDIO_SAMPLE_COUNT = 6
+
+
+CONVERSATION_PLAN_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "planId": {"type": "string"},
+        "promptTag": {"type": "string"},
+        "openingMessage": {"type": "string"},
+        "conversationTurns": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "id": {"type": "string"},
+                    "title": {"type": "string"},
+                    "prompt": {"type": "string"},
+                    "targetDurationSeconds": {"type": "number"},
+                },
+                "required": ["id", "title", "prompt", "targetDurationSeconds"],
+            },
+        },
+        "safetyNote": {"type": "string"},
+        "source": {"type": "string"},
+    },
+    "required": [
+        "planId",
+        "promptTag",
+        "openingMessage",
+        "conversationTurns",
+        "safetyNote",
+        "source",
+    ],
+}
+
+CHAT_TURN_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "reply": {"type": "string"},
+        "shouldContinue": {"type": "boolean"},
+        "source": {"type": "string"},
+    },
+    "required": ["reply", "shouldContinue", "source"],
+}
+
+VOICE_ANALYSIS_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "summary": {"type": "string"},
+        "dataQuality": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "notableSignals": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "longitudinalContext": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "missingData": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "recommendedNextSteps": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "safetyNote": {"type": "string"},
+    },
+    "required": [
+        "summary",
+        "dataQuality",
+        "notableSignals",
+        "longitudinalContext",
+        "missingData",
+        "recommendedNextSteps",
+        "safetyNote",
+    ],
+}
+
+
+def load_dotenv(path: Path) -> None:
+    if not path.exists():
+        return
+
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        os.environ.setdefault(key, value)
+
+
+def response_text(response: dict) -> str | None:
+    direct = response.get("output_text")
+    if isinstance(direct, str) and direct.strip():
+        return direct
+
+    for item in response.get("output", []):
+        for content in item.get("content", []):
+            if content.get("type") == "output_text":
+                text = content.get("text")
+                if isinstance(text, str) and text.strip():
+                    return text
+    return None
+
+
+def chat_completion_text(response: dict) -> str | None:
+    choices = response.get("choices") or []
+    if not choices:
+        return None
+    message = choices[0].get("message") or {}
+    content = message.get("content")
+    if isinstance(content, str) and content.strip():
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            text = item.get("text") if isinstance(item, dict) else None
+            if isinstance(text, str):
+                parts.append(text)
+        joined = "\n".join(parts).strip()
+        if joined:
+            return joined
+    return None
+
+
+def parse_json_text(text: str) -> dict:
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start >= 0 and end > start:
+            return json.loads(text[start : end + 1])
+        raise
+
+
+def voice_analysis_prompt(payload: dict, includes_audio: bool) -> dict:
+    analysis_export = payload.get("analysisExport") or {}
+    audio_samples = [
+        {
+            "id": sample.get("id"),
+            "taskType": sample.get("taskType"),
+            "promptId": sample.get("promptId"),
+            "promptText": sample.get("promptText"),
+            "turnIndex": sample.get("turnIndex"),
+            "fileName": sample.get("fileName"),
+            "durationSeconds": sample.get("durationSeconds"),
+            "sampleRate": sample.get("sampleRate"),
+            "channels": sample.get("channels"),
+            "format": sample.get("format"),
+            "byteCount": sample.get("byteCount"),
+        }
+        for sample in (payload.get("debugAudioSamples") or [])[:MAX_AUDIO_SAMPLE_COUNT]
+    ]
+
+    constraints = [
+        "Use the analysisExport as the source of truth.",
+        "Use questionBackground to explain what each voice task was intended to capture.",
+        "Use recentVoiceHistory only for longitudinal context and baseline readiness.",
+        "Discuss task quality, missing modalities, baseline readiness, and top changed drivers when available.",
+        "Prefer validated or stable proxy acoustic features; do not rely on unsupported placeholder fields.",
+        "Do not diagnose, treat, predict disease, mention disorders, or imply a medical condition.",
+        "Do not identify, verify, or compare the user's identity from the audio.",
+        "Do not claim that a voice feature caused a health or wellness state.",
+        "Keep summary to one or two short user-facing sentences.",
+        "Set safetyNote to a short reminder that this is wellness-only and not medical advice.",
+    ]
+    if includes_audio:
+        constraints.extend(
+            [
+                "Listen to the attached WAV clips only for recording quality, speaking rhythm, gross clarity, pauses, and consistency with structured features.",
+                "Mention that raw debug audio was used in dataQuality.",
+                "Do not infer protected traits, medical states, emotion labels, or identity from the audio.",
+            ]
+        )
+
+    return {
+        "task": "Analyze the completed VitalScore voice-check export for non-diagnostic wellness trend reflection.",
+        "constraints": constraints,
+        "exportFileName": payload.get("exportFileName"),
+        "analysisExport": analysis_export,
+        "questionBackground": payload.get("questionBackground") or {},
+        "recentVoiceHistory": payload.get("recentVoiceHistory") or [],
+        "audioSampleManifest": audio_samples,
+        "requiredJsonShape": VOICE_ANALYSIS_SCHEMA,
+    }
+
+
+def openai_conversation_plan(payload: dict) -> dict:
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not configured in .env")
+
+    model = payload.get("model") or os.environ.get("VITALSCORE_AI_DIALOG_MODEL") or "gpt-5.4-mini"
+    system_instruction = payload.get("systemInstruction") or ""
+    context = payload.get("context") or {}
+
+    prompt = {
+        "task": "Create the first spoken prompt for VitalScore's advanced AI voice talk.",
+        "constraints": [
+            "Return exactly one conversationTurn for the opening AI conversation prompt.",
+            "This opening prompt is question 1 of a 4-question conversation; later turns will be generated after each user answer.",
+            "Set targetDurationSeconds to 45.",
+            "Use only the provided voice tracking context and recent history.",
+            "Do not diagnose, treat, predict disease, or imply a medical condition.",
+            "Do not claim voice features caused a health or wellness state.",
+            "Ask one warm, natural question about how the user feels right now.",
+            "Avoid sounding like a survey, fixed script, or post-analysis.",
+            "Make it easy to answer aloud in a few seconds.",
+            "Set promptTag to ai_voice_conversation_v1.",
+            "Set source to openai.",
+        ],
+        "context": context,
+    }
+
+    request_body = {
+        "model": model,
+        "instructions": system_instruction,
+        "input": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": json.dumps(prompt, separators=(",", ":"), ensure_ascii=False),
+                    }
+                ],
+            }
+        ],
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": "vitalscore_voice_conversation_plan",
+                "strict": True,
+                "schema": CONVERSATION_PLAN_SCHEMA,
+            }
+        },
+        "max_output_tokens": 900,
+    }
+
+    request = urllib.request.Request(
+        OPENAI_RESPONSES_URL,
+        data=json.dumps(request_body).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=45) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        body = error.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"OpenAI request failed with {error.code}: {body}") from error
+
+    text = response_text(data)
+    if not text:
+        raise RuntimeError("OpenAI response did not include output text")
+    return json.loads(text)
+
+
+def openai_chat_turn(payload: dict) -> dict:
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not configured in .env")
+
+    model = payload.get("model") or os.environ.get("VITALSCORE_AI_DIALOG_MODEL") or "gpt-5.4-mini"
+    system_instruction = payload.get("systemInstruction") or ""
+    context = payload.get("context") or {}
+    history = payload.get("history") or []
+    previous_assistant_replies = payload.get("previousAssistantReplies") or [
+        item.get("text")
+        for item in history
+        if isinstance(item, dict) and item.get("role") == "assistant" and item.get("text")
+    ]
+    previous_user_transcripts = payload.get("previousUserTranscripts") or [
+        item.get("text")
+        for item in history
+        if isinstance(item, dict) and item.get("role") == "user" and item.get("text")
+    ]
+    latest_user_transcript = payload.get("latestUserTranscript") or ""
+    turn_index = int(payload.get("turnIndex") or 1)
+    max_turns = int(payload.get("maxTurns") or 4)
+
+    prompt = {
+        "task": "Reply as the live speaking AI guide in VitalScore's voice check.",
+        "constraints": [
+            "Use the latest transcribed user response and prior turn history.",
+            "Ground the follow-up in a concrete detail from latestUserTranscript.",
+            "Reply with one short spoken sentence when possible.",
+            "If another turn remains, acknowledge briefly and ask one simple follow-up.",
+            "The follow-up question must be different from every item in previousAssistantReplies.",
+            "Do not reuse generic fallback wording such as 'What feels like the biggest reason for that today?' if it was already asked.",
+            "If this is the final turn, write one short summary of the user's answers without asking another question.",
+            "Never include a question mark when turnIndex equals maxTurns.",
+            "Keep the tone natural, warm, and fast to speak aloud.",
+            "Avoid survey language and repeated phrases like thanks or got it on every turn.",
+            "Do not diagnose, treat, predict disease, or imply a medical condition.",
+            "Do not claim voice features caused a health or wellness state.",
+            "Set source to openai.",
+            "Set shouldContinue to true only when turnIndex is less than maxTurns.",
+        ],
+        "turnIndex": turn_index,
+        "maxTurns": max_turns,
+        "shouldContinue": turn_index < max_turns,
+        "latestUserTranscript": latest_user_transcript,
+        "history": history,
+        "previousAssistantReplies": previous_assistant_replies,
+        "previousUserTranscripts": previous_user_transcripts,
+        "context": context,
+    }
+
+    request_body = {
+        "model": model,
+        "instructions": system_instruction,
+        "input": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": json.dumps(prompt, separators=(",", ":"), ensure_ascii=False),
+                    }
+                ],
+            }
+        ],
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": "vitalscore_voice_chat_turn",
+                "strict": True,
+                "schema": CHAT_TURN_SCHEMA,
+            }
+        },
+        "max_output_tokens": 260,
+    }
+
+    request = urllib.request.Request(
+        OPENAI_RESPONSES_URL,
+        data=json.dumps(request_body).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        body = error.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"OpenAI request failed with {error.code}: {body}") from error
+
+    text = response_text(data)
+    if not text:
+        raise RuntimeError("OpenAI response did not include output text")
+    result = json.loads(text)
+    result["shouldContinue"] = bool(result.get("shouldContinue")) and turn_index < max_turns
+    result["source"] = result.get("source") or "openai"
+    return result
+
+
+def openai_voice_analysis(payload: dict) -> dict:
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not configured in .env")
+
+    if payload.get("debugAudioSamples"):
+        return openai_voice_audio_analysis(payload)
+
+    model = payload.get("model") or os.environ.get("VITALSCORE_AI_DIALOG_MODEL") or "gpt-5.4-mini"
+    system_instruction = payload.get("systemInstruction") or ""
+    analysis_export = payload.get("analysisExport") or {}
+    export_id = analysis_export.get("id") or str(uuid.uuid4())
+    prompt = voice_analysis_prompt(payload, includes_audio=False)
+
+    request_body = {
+        "model": model,
+        "instructions": system_instruction,
+        "input": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": json.dumps(prompt, separators=(",", ":"), ensure_ascii=False),
+                    }
+                ],
+            }
+        ],
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": "vitalscore_voice_analysis",
+                "strict": True,
+                "schema": VOICE_ANALYSIS_SCHEMA,
+            }
+        },
+        "max_output_tokens": 900,
+    }
+
+    request = urllib.request.Request(
+        OPENAI_RESPONSES_URL,
+        data=json.dumps(request_body).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=45) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        body = error.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"OpenAI request failed with {error.code}: {body}") from error
+
+    text = response_text(data)
+    if not text:
+        raise RuntimeError("OpenAI response did not include output text")
+
+    result = json.loads(text)
+    result["id"] = str(uuid.uuid4())
+    result["exportId"] = export_id
+    result["createdAt"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    result["source"] = "openai"
+    return result
+
+
+def openai_voice_audio_analysis(payload: dict) -> dict:
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not configured in .env")
+
+    model = os.environ.get("VITALSCORE_AI_AUDIO_ANALYSIS_MODEL") or "gpt-audio-1.5"
+    system_instruction = payload.get("systemInstruction") or ""
+    analysis_export = payload.get("analysisExport") or {}
+    export_id = analysis_export.get("id") or str(uuid.uuid4())
+    prompt = voice_analysis_prompt(payload, includes_audio=True)
+
+    content = [
+        {
+            "type": "text",
+            "text": json.dumps(prompt, separators=(",", ":"), ensure_ascii=False),
+        }
+    ]
+    audio_count = 0
+    for sample in (payload.get("debugAudioSamples") or [])[:MAX_AUDIO_SAMPLE_COUNT]:
+        data = sample.get("base64Audio")
+        audio_format = (sample.get("format") or "wav").lower().lstrip(".")
+        if not isinstance(data, str) or not data.strip():
+            continue
+        if audio_format not in ("wav", "mp3"):
+            continue
+        content.append(
+            {
+                "type": "input_audio",
+                "input_audio": {
+                    "data": data,
+                    "format": audio_format,
+                },
+            }
+        )
+        audio_count += 1
+
+    if audio_count == 0:
+        return openai_voice_analysis({**payload, "debugAudioSamples": []})
+
+    request_body = {
+        "model": model,
+        "modalities": ["text"],
+        "messages": [
+            {
+                "role": "system",
+                "content": system_instruction,
+            },
+            {
+                "role": "user",
+                "content": content,
+            },
+        ],
+        "response_format": {"type": "json_object"},
+        "max_completion_tokens": 1_200,
+    }
+
+    request = urllib.request.Request(
+        OPENAI_CHAT_COMPLETIONS_URL,
+        data=json.dumps(request_body).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=75) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        body = error.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"OpenAI audio analysis request failed with {error.code}: {body}") from error
+
+    text = chat_completion_text(data)
+    if not text:
+        raise RuntimeError("OpenAI audio analysis response did not include text")
+
+    result = parse_json_text(text)
+    result["id"] = str(uuid.uuid4())
+    result["exportId"] = export_id
+    result["createdAt"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    result["source"] = "openai_audio_input"
+    return result
+
+
+class DialogHandler(BaseHTTPRequestHandler):
+    server_version = "VitalScoreAIConversation/1.0"
+
+    def do_OPTIONS(self) -> None:
+        self.send_response(204)
+        self.send_cors_headers()
+        self.end_headers()
+
+    def do_GET(self) -> None:
+        if self.path != "/health":
+            self.send_json(404, {"error": "not_found"})
+            return
+        self.send_json(200, {"status": "ok"})
+
+    def do_POST(self) -> None:
+        if self.path not in ("/ai/voice-conversation", "/ai/voice-dialog", "/ai/voice-chat-turn", "/ai/voice-analysis"):
+            self.send_json(404, {"error": "not_found"})
+            return
+
+        try:
+            payload = self.read_payload()
+            provider = (payload.get("provider") or os.environ.get("VITALSCORE_AI_PROVIDER") or "openai").lower()
+            if provider != "openai":
+                self.send_json(400, {"error": f"Unsupported AI provider: {provider}"})
+                return
+            if self.path == "/ai/voice-chat-turn":
+                response = openai_chat_turn(payload)
+            elif self.path == "/ai/voice-analysis":
+                response = openai_voice_analysis(payload)
+            else:
+                response = openai_conversation_plan(payload)
+            self.send_json(200, response)
+        except Exception as error:
+            self.send_json(500, {"error": str(error)})
+
+    def read_payload(self) -> dict:
+        length = int(self.headers.get("Content-Length", "0"))
+        if length <= 0:
+            raise ValueError("Request body is empty")
+        if length > MAX_BODY_BYTES:
+            raise ValueError("Request body is too large")
+        body = self.rfile.read(length)
+        return json.loads(body.decode("utf-8"))
+
+    def send_json(self, status: int, payload: dict) -> None:
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_cors_headers()
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def send_cors_headers(self) -> None:
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def log_message(self, format: str, *args: object) -> None:
+        sys.stderr.write("%s - %s\n" % (self.address_string(), format % args))
+
+
+def main() -> int:
+    load_dotenv(ENV_PATH)
+    host = os.environ.get("VITALSCORE_AI_DIALOG_HOST", "127.0.0.1")
+    port = int(os.environ.get("VITALSCORE_AI_DIALOG_PORT", "8787"))
+
+    server = ThreadingHTTPServer((host, port), DialogHandler)
+    print(f"VitalScore AI conversation server listening on http://{host}:{port}")
+    print("POST /ai/voice-conversation")
+    print("POST /ai/voice-chat-turn")
+    print("POST /ai/voice-analysis")
+    server.serve_forever()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

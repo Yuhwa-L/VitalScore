@@ -4,17 +4,23 @@ import XCTest
 final class LocalStorageManagerTests: XCTestCase {
     private var defaults: UserDefaults!
     private var storage: LocalStorageManager!
+    private var exportDirectory: URL!
     private let suite = "com.vitalscore.tests"
 
     override func setUp() {
         super.setUp()
         defaults = UserDefaults(suiteName: suite)
         defaults.removePersistentDomain(forName: suite)
-        storage = LocalStorageManager(defaults: defaults)
+        exportDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VitalScoreExportTests-\(UUID().uuidString)", isDirectory: true)
+        storage = LocalStorageManager(defaults: defaults, exportDirectory: exportDirectory)
     }
 
     override func tearDown() {
+        try? FileManager.default.removeItem(at: exportDirectory)
         defaults.removePersistentDomain(forName: suite)
+        UserDefaults.standard.removeObject(forKey: VoiceRawAudioDebugExportSettings.userDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: VoiceRawAudioDebugExportSettings.aiUploadUserDefaultsKey)
         super.tearDown()
     }
 
@@ -94,7 +100,12 @@ final class LocalStorageManagerTests: XCTestCase {
             averageVolumeDb: -23,
             volumeStdDevDb: 3,
             silenceRatio: 0,
-            peakVolumeDb: -10
+            peakVolumeDb: -10,
+            conversationSummary: VoiceConversationSummary(
+                questionCount: 4,
+                summary: "Summary saved: focus and routine stood out across your answers.",
+                source: "openai"
+            )
         )
         let session = VoiceTrackingSession(
             date: result.completedAt,
@@ -110,6 +121,8 @@ final class LocalStorageManagerTests: XCTestCase {
         XCTAssertEqual(loaded.first?.experimentTag, "Morning Sunlight")
         XCTAssertEqual(loaded.first?.promptTag, "daily_voice_check_v1")
         XCTAssertEqual(loaded.first?.result.voiceScore, 91)
+        XCTAssertEqual(loaded.first?.result.conversationSummary?.questionCount, 4)
+        XCTAssertEqual(loaded.first?.result.conversationSummary?.summary, "Summary saved: focus and routine stood out across your answers.")
     }
 
     func test_voiceSessionsInWindow_filtersByDate() {
@@ -122,5 +135,208 @@ final class LocalStorageManagerTests: XCTestCase {
         let windowed = storage.voiceSessionsInWindow(days: 7, asOf: now)
         XCTAssertEqual(windowed.count, 1)
         XCTAssertEqual(windowed.first?.result.voiceScore, 80)
+    }
+
+    func test_writeVoiceAnalysisExport_createsLLMReadyJsonAndIndex() throws {
+        let result = VoiceTrackingResult(
+            completedAt: Date(),
+            durationSeconds: 20,
+            voiceScore: 82,
+            averageVolumeDb: -24,
+            volumeStdDevDb: 3.1,
+            silenceRatio: 0.12,
+            peakVolumeDb: -10,
+            conversationExchanges: [
+                VoiceConversationExchange(
+                    turnIndex: 1,
+                    aiPrompt: "How has your energy felt today?",
+                    userTranscript: "I feel steady but a little tired after lunch.",
+                    userResponseStartedAt: Date(),
+                    userResponseEndedAt: Date().addingTimeInterval(8),
+                    responseDurationSeconds: 8,
+                    source: "ios_speech_recognition"
+                )
+            ],
+            conversationSummary: VoiceConversationSummary(
+                questionCount: 1,
+                summary: "Summary saved: sleep or rest and steadiness stood out across your answers.",
+                source: "openai"
+            )
+        )
+        let session = VoiceTrackingSession(
+            date: result.completedAt,
+            experimentTag: "Morning",
+            promptTag: "ai_voice_conversation_v1",
+            result: result
+        )
+        let record = DailyHealthRecord(
+            date: result.completedAt,
+            experimentTag: "Morning",
+            sleepHours: 7.2,
+            voiceScore: result.voiceScore,
+            wellnessDeltaScore: 4,
+            confidenceLevel: "Medium",
+            insightText: "Voice and sleep data available."
+        )
+
+        let fileURL = try XCTUnwrap(storage.writeVoiceAnalysisExport(session: session, dailyRecord: record))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
+
+        let data = try Data(contentsOf: fileURL)
+        let export = try JSONDecoder.iso8601.decode(MultimodalAnalysisExport.self, from: data)
+        XCTAssertEqual(export.schemaVersion, MultimodalAnalysisExport.schemaVersion)
+        XCTAssertEqual(export.source, .voiceTracking)
+        XCTAssertTrue(export.availableModalities.contains("voice_acoustic_features"))
+        XCTAssertTrue(export.availableModalities.contains("voice_conversation_transcript"))
+        XCTAssertTrue(export.availableModalities.contains("voice_conversation_summary"))
+        XCTAssertEqual(export.voiceSession?.id, session.id)
+        XCTAssertEqual(export.voiceSession?.result.conversationExchanges.first?.userTranscript, "I feel steady but a little tired after lunch.")
+        XCTAssertEqual(export.voiceSession?.result.conversationSummary?.questionCount, 1)
+        XCTAssertEqual(export.questionProtocol?.mode, "advanced_freestyle_talk")
+        XCTAssertTrue(export.questionProtocol?.questionSet.contains { $0.taskType == VoiceTaskType.guidedConversation.rawValue } == true)
+        XCTAssertTrue(export.textContext.contains { $0.contains("Voice question protocol") })
+        XCTAssertTrue(export.textContext.contains { $0.contains("AI conversation short summary") })
+        XCTAssertEqual(export.voiceFeatureValidation?.first(where: { $0.key == "jitterLocalPercent" })?.status, .unsupported)
+        XCTAssertEqual(export.featureVector["voice.score"], 82)
+        XCTAssertEqual(export.featureVector["voice.ai_conversation_turn_count"], 1)
+        XCTAssertEqual(export.featureVector["voice.ai_conversation_summary_word_count"], 12)
+        XCTAssertEqual(export.featureVector["voice.ai_conversation.turn_1.transcript_word_count"], 9)
+        XCTAssertEqual(export.featureVector["health.sleep_hours"], 7.2)
+
+        let indexURL = storage.analysisExportDirectory.appendingPathComponent(LocalStorageManager.analysisIndexFileName)
+        let indexText = try String(contentsOf: indexURL)
+        XCTAssertTrue(indexText.contains(fileURL.lastPathComponent))
+    }
+
+    func test_writeVoiceAnalysisExport_marksDebugRawAudioPrivacyWhenManifestAttached() throws {
+        let result = VoiceTrackingResult(
+            completedAt: Date(),
+            durationSeconds: 8,
+            voiceScore: 78,
+            averageVolumeDb: -25,
+            volumeStdDevDb: 3,
+            silenceRatio: 0.1,
+            peakVolumeDb: -11
+        )
+        let session = VoiceTrackingSession(
+            date: result.completedAt,
+            experimentTag: "Morning",
+            promptTag: "daily_voice_check_v1",
+            rawAudioRetentionPolicy: "debug_opt_in_raw_wav_local_and_ai_upload",
+            rawAudioDebugManifestPath: "/tmp/vitalscore-debug-manifest.json",
+            result: result
+        )
+
+        let fileURL = try XCTUnwrap(storage.writeVoiceAnalysisExport(session: session, dailyRecord: nil))
+        let data = try Data(contentsOf: fileURL)
+        let export = try JSONDecoder.iso8601.decode(MultimodalAnalysisExport.self, from: data)
+
+        XCTAssertTrue(export.privacy.rawAudioStored)
+        XCTAssertTrue(export.availableModalities.contains("debug_opt_in_voice_wav_audio"))
+        XCTAssertTrue(export.privacy.warning.contains("raw WAV clips"))
+    }
+
+    func test_debugAudioSamples_loadsOptInWavPayload() throws {
+        let directory = exportDirectory.appendingPathComponent("DebugWAV", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let audioData = Data([0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x00, 0x00])
+        let audioURL = directory.appendingPathComponent("sample.wav")
+        try audioData.write(to: audioURL)
+
+        let sampleId = UUID()
+        let manifest = VoiceRawAudioDebugManifest(
+            schemaVersion: VoiceRawAudioDebugManifest.schemaVersion,
+            sessionId: UUID(),
+            createdAt: Date(),
+            warning: "test",
+            samples: [
+                VoiceRawAudioDebugSample(
+                    id: sampleId,
+                    taskType: .fixedReading,
+                    promptId: "fixed_reading",
+                    promptText: "Read this sentence.",
+                    turnIndex: nil,
+                    fileName: audioURL.lastPathComponent,
+                    startedAt: Date(),
+                    endedAt: Date(),
+                    durationSeconds: 4,
+                    sampleRate: 44_100,
+                    channels: 1,
+                    status: "completed"
+                )
+            ]
+        )
+        let manifestURL = directory.appendingPathComponent(VoiceRawAudioDebugExportSettings.manifestFileName)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(to: manifestURL)
+
+        UserDefaults.standard.set(true, forKey: VoiceRawAudioDebugExportSettings.userDefaultsKey)
+        UserDefaults.standard.set(true, forKey: VoiceRawAudioDebugExportSettings.aiUploadUserDefaultsKey)
+
+        let result = VoiceTrackingResult(
+            completedAt: Date(),
+            durationSeconds: 4,
+            voiceScore: 80,
+            averageVolumeDb: -25,
+            volumeStdDevDb: 3,
+            silenceRatio: 0,
+            peakVolumeDb: -12
+        )
+        let session = VoiceTrackingSession(
+            date: result.completedAt,
+            experimentTag: "Morning",
+            promptTag: "daily_voice_check_v1",
+            rawAudioRetentionPolicy: "debug_opt_in_raw_wav_local_and_ai_upload",
+            rawAudioDebugManifestPath: manifestURL.path,
+            result: result
+        )
+
+        let samples = AIConversationClient.debugAudioSamples(for: session)
+        XCTAssertEqual(samples.count, 1)
+        XCTAssertEqual(samples.first?.id, sampleId)
+        XCTAssertEqual(samples.first?.format, "wav")
+        XCTAssertEqual(samples.first?.byteCount, audioData.count)
+        XCTAssertEqual(samples.first?.base64Audio, audioData.base64EncodedString())
+    }
+
+    func test_writeVoiceAIAnalysisResult_createsResultFileAndIndex() throws {
+        let response = VoiceAIAnalysisResponse(
+            id: UUID(),
+            exportId: UUID(),
+            createdAt: Date(),
+            source: "openai",
+            summary: "The check had usable quality and enough speech for wellness reflection.",
+            dataQuality: ["Usable task quality."],
+            notableSignals: ["Voice score was available."],
+            longitudinalContext: ["Baseline is still building."],
+            missingData: ["No eye-focus data in this export."],
+            recommendedNextSteps: ["Repeat the same fixed prompt over several days."],
+            safetyNote: "Wellness-only, not medical advice."
+        )
+        let exportURL = storage.analysisExportDirectory
+            .appendingPathComponent("20260524T000000Z_voice_tracking_export.json")
+
+        let fileURL = try XCTUnwrap(storage.writeVoiceAIAnalysisResult(response, exportFileURL: exportURL))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
+
+        let data = try Data(contentsOf: fileURL)
+        let stored = try JSONDecoder.iso8601.decode(VoiceAIAnalysisStoredResult.self, from: data)
+        XCTAssertEqual(stored.schemaVersion, VoiceAIAnalysisStoredResult.currentSchemaVersion)
+        XCTAssertEqual(stored.exportFileName, exportURL.lastPathComponent)
+        XCTAssertEqual(stored.analysis.id, response.id)
+
+        let indexURL = storage.analysisExportDirectory.appendingPathComponent(LocalStorageManager.aiAnalysisIndexFileName)
+        let indexText = try String(contentsOf: indexURL)
+        XCTAssertTrue(indexText.contains(fileURL.lastPathComponent))
+        XCTAssertTrue(indexText.contains(exportURL.lastPathComponent))
+    }
+}
+
+private extension JSONDecoder {
+    static var iso8601: JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
     }
 }
