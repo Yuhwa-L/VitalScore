@@ -7,7 +7,6 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var showResetConfirm = false
-    @State private var showExperimentPicker = false
 
     var body: some View {
         NavigationStack {
@@ -16,13 +15,6 @@ struct SettingsView: View {
                     LabeledContent("Apple ID", value: "Mock User")
                     LabeledContent("Onboarded", value: storage.hasCompletedOnboarding ? "Yes" : "No")
                     LabeledContent("Health Connected", value: healthKit.isAuthorized ? "Yes" : "No")
-                }
-
-                Section("Experiment") {
-                    LabeledContent("Current", value: experiments.displayName)
-                    Button("Change Experiment") {
-                        showExperimentPicker = true
-                    }
                 }
 
                 Section("Mock Data (Debug)") {
@@ -78,12 +70,7 @@ struct SettingsView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("This clears onboarding, experiment selection, permission, and all saved records. The next launch will start from the welcome screen.")
-            }
-            .sheet(isPresented: $showExperimentPicker) {
-                ExperimentSelectionView { showExperimentPicker = false }
-                    .environmentObject(experiments)
-                    .environmentObject(storage)
+                Text("This clears onboarding, permission, and all saved records. The next launch will start from the welcome screen.")
             }
         }
     }
