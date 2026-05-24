@@ -19,6 +19,11 @@ struct SettingsView: View {
                     LabeledContent("Apple ID", value: "Mock User")
                     LabeledContent("Onboarded", value: storage.hasCompletedOnboarding ? "Yes" : "No")
                     LabeledContent("Health Connected", value: healthKit.isAuthorized ? "Yes" : "No")
+                    NavigationLink {
+                        VitalScoreSubscriptionView()
+                    } label: {
+                        Label("Subscription", systemImage: "crown")
+                    }
                 }
 
                 #if DEBUG
@@ -29,7 +34,7 @@ struct SettingsView: View {
                     Text("Development only. Requires explicit local opt-in and writes WAV files under the app Documents folder for offline openSMILE comparison.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text("The AI upload toggle sends those WAV clips to the configured local AI server after a voice test. Keep it off unless the user has agreed to raw-audio analysis.")
+                    Text("The AI upload toggle attaches those WAV clips to direct API analysis after a voice test. Keep it off unless the user has agreed to raw-audio analysis.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     LabeledContent("Folder", value: VoiceRawAudioDebugExportSettings.directoryName)

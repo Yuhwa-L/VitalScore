@@ -36,6 +36,7 @@ The app is organized by responsibility:
 - `VitalScore/Core/AI` contains direct OpenAI API clients and prompt builders.
 - `VitalScore/Features/*/Views` contains screen UI.
 - `VitalScore/Features/*/Services` or `Stores` contains feature logic and managers.
+- `VitalScore/Features/Subscription` contains the subscription/paywall UI.
 - `VitalScore/Resources/Data` contains bundled demo JSON data.
 - `VitalScore/Shared/Components` contains reusable SwiftUI components.
 
