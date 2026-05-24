@@ -21,6 +21,8 @@ struct WellnessScoreEngine {
                 averageHRVMs: nil,
                 averageStepCount: nil,
                 averageEyeFocusScore: nil,
+                averageGazeScore: nil,
+                averageGazeAccuracyPx: nil,
                 averageBalanceScore: nil
             )
         }
@@ -32,6 +34,8 @@ struct WellnessScoreEngine {
             averageHRVMs: Self.average(scoped.compactMap { $0.hrvMs }),
             averageStepCount: Self.average(scoped.compactMap { $0.stepCount }),
             averageEyeFocusScore: Self.average(scoped.compactMap { $0.eyeFocusScore }),
+            averageGazeScore: Self.average(scoped.compactMap { $0.gazeScore }),
+            averageGazeAccuracyPx: Self.average(scoped.compactMap { $0.gazeAccuracyPx }),
             averageBalanceScore: Self.average(scoped.compactMap { $0.balanceScore })
         )
     }
@@ -160,6 +164,18 @@ struct WellnessScoreEngine {
                 lines.append("Eye-focus score improved by \(diff) points versus baseline.")
             } else if diff < 0 {
                 lines.append("Eye-focus score decreased by \(-diff) points versus baseline.")
+            }
+        }
+        if let todayGaze = today.gazeScore {
+            if let baseGaze = baseline.averageGazeScore {
+                let diff = Int(round(todayGaze - baseGaze))
+                if diff > 0 {
+                    lines.append("Gaze stability improved by \(diff) points versus baseline.")
+                } else if diff < 0 {
+                    lines.append("Gaze stability decreased by \(-diff) points versus baseline.")
+                }
+            } else {
+                lines.append("Gaze stability captured for the first time: \(Int(round(todayGaze)))/100.")
             }
         }
 

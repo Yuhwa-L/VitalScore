@@ -17,8 +17,21 @@ struct DailyHealthRecord: Codable, Identifiable {
     let missedTargets: Int?
     let falseTaps: Int?
 
+    let gazeAccuracyPx: Double?
+    let gazeStabilityPx: Double?
+    let gazeFixationMs: Double?
+    let gazeBlinkRatePerMin: Double?
+    let gazeTrackingLossPct: Double?
+    let gazeScore: Double?
+
     let balanceScore: Double?
     let swayIndex: Double?
+
+    let voiceScore: Double?
+    let voiceAverageVolumeDb: Double?
+    let voiceVolumeStdDevDb: Double?
+    let voiceSilenceRatio: Double?
+    let voicePeakVolumeDb: Double?
 
     let selfReportedEnergy: Int?
     let selfReportedStress: Int?
@@ -42,8 +55,19 @@ struct DailyHealthRecord: Codable, Identifiable {
         reactionStdDevMs: Double? = nil,
         missedTargets: Int? = nil,
         falseTaps: Int? = nil,
+        gazeAccuracyPx: Double? = nil,
+        gazeStabilityPx: Double? = nil,
+        gazeFixationMs: Double? = nil,
+        gazeBlinkRatePerMin: Double? = nil,
+        gazeTrackingLossPct: Double? = nil,
+        gazeScore: Double? = nil,
         balanceScore: Double? = nil,
         swayIndex: Double? = nil,
+        voiceScore: Double? = nil,
+        voiceAverageVolumeDb: Double? = nil,
+        voiceVolumeStdDevDb: Double? = nil,
+        voiceSilenceRatio: Double? = nil,
+        voicePeakVolumeDb: Double? = nil,
         selfReportedEnergy: Int? = nil,
         selfReportedStress: Int? = nil,
         selfReportedSleepQuality: Int? = nil,
@@ -64,8 +88,19 @@ struct DailyHealthRecord: Codable, Identifiable {
         self.reactionStdDevMs = reactionStdDevMs
         self.missedTargets = missedTargets
         self.falseTaps = falseTaps
+        self.gazeAccuracyPx = gazeAccuracyPx
+        self.gazeStabilityPx = gazeStabilityPx
+        self.gazeFixationMs = gazeFixationMs
+        self.gazeBlinkRatePerMin = gazeBlinkRatePerMin
+        self.gazeTrackingLossPct = gazeTrackingLossPct
+        self.gazeScore = gazeScore
         self.balanceScore = balanceScore
         self.swayIndex = swayIndex
+        self.voiceScore = voiceScore
+        self.voiceAverageVolumeDb = voiceAverageVolumeDb
+        self.voiceVolumeStdDevDb = voiceVolumeStdDevDb
+        self.voiceSilenceRatio = voiceSilenceRatio
+        self.voicePeakVolumeDb = voicePeakVolumeDb
         self.selfReportedEnergy = selfReportedEnergy
         self.selfReportedStress = selfReportedStress
         self.selfReportedSleepQuality = selfReportedSleepQuality

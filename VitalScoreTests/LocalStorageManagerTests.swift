@@ -32,6 +32,11 @@ final class LocalStorageManagerTests: XCTestCase {
             reactionStdDevMs: 60,
             missedTargets: 1,
             falseTaps: 0,
+            voiceScore: 88,
+            voiceAverageVolumeDb: -24,
+            voiceVolumeStdDevDb: 4.5,
+            voiceSilenceRatio: 0.1,
+            voicePeakVolumeDb: -12,
             wellnessDeltaScore: 7,
             confidenceLevel: "Medium",
             insightText: "Sleep increased by 30 minutes."
@@ -42,6 +47,8 @@ final class LocalStorageManagerTests: XCTestCase {
         let first = loaded.first!
         XCTAssertEqual(first.experimentTag, "No Alcohol")
         XCTAssertEqual(first.sleepHours, 7.5)
+        XCTAssertEqual(first.voiceScore, 88)
+        XCTAssertEqual(first.voiceSilenceRatio, 0.1)
         XCTAssertEqual(first.wellnessDeltaScore, 7)
         XCTAssertEqual(first.confidenceLevel, "Medium")
         XCTAssertEqual(first.insightText, "Sleep increased by 30 minutes.")
@@ -77,5 +84,43 @@ final class LocalStorageManagerTests: XCTestCase {
         storage.saveRecord(outside)
         let windowed = storage.recordsInWindow(days: 7, asOf: now)
         XCTAssertEqual(windowed.count, 1)
+    }
+
+    func test_saveVoiceSession_persistsExperimentAndPromptTags() {
+        let result = VoiceTrackingResult(
+            completedAt: Date(),
+            durationSeconds: 12,
+            voiceScore: 91,
+            averageVolumeDb: -23,
+            volumeStdDevDb: 3,
+            silenceRatio: 0,
+            peakVolumeDb: -10
+        )
+        let session = VoiceTrackingSession(
+            date: result.completedAt,
+            experimentTag: "Morning Sunlight",
+            promptTag: "daily_voice_check_v1",
+            result: result
+        )
+
+        storage.saveVoiceSession(session)
+
+        let loaded = storage.loadVoiceSessions()
+        XCTAssertEqual(loaded.count, 1)
+        XCTAssertEqual(loaded.first?.experimentTag, "Morning Sunlight")
+        XCTAssertEqual(loaded.first?.promptTag, "daily_voice_check_v1")
+        XCTAssertEqual(loaded.first?.result.voiceScore, 91)
+    }
+
+    func test_voiceSessionsInWindow_filtersByDate() {
+        let now = Date()
+        let recentResult = VoiceTrackingResult(completedAt: now.addingTimeInterval(-3600), durationSeconds: 10, voiceScore: 80, averageVolumeDb: -25, volumeStdDevDb: 3, silenceRatio: 0, peakVolumeDb: -12)
+        let oldResult = VoiceTrackingResult(completedAt: now.addingTimeInterval(-3600 * 24 * 12), durationSeconds: 10, voiceScore: 70, averageVolumeDb: -28, volumeStdDevDb: 4, silenceRatio: 0.1, peakVolumeDb: -14)
+        storage.saveVoiceSession(VoiceTrackingSession(date: recentResult.completedAt, experimentTag: "A", promptTag: "daily_voice_check_v1", result: recentResult))
+        storage.saveVoiceSession(VoiceTrackingSession(date: oldResult.completedAt, experimentTag: "A", promptTag: "daily_voice_check_v1", result: oldResult))
+
+        let windowed = storage.voiceSessionsInWindow(days: 7, asOf: now)
+        XCTAssertEqual(windowed.count, 1)
+        XCTAssertEqual(windowed.first?.result.voiceScore, 80)
     }
 }

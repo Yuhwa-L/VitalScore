@@ -18,12 +18,16 @@
 	<string>1.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>NSCameraUsageDescription</key>
+	<string>VitalScore uses the front camera during the optional eye-focus test to estimate gaze stability with ARKit. Frames are processed on-device only and are not recorded or uploaded. This is for wellness trends, not medical diagnosis.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>VitalScore reads your heart rate, sleep, steps, and activity data to show wellness trends over time. This is not medical advice.</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>VitalScore does not write to Health, but iOS requires this string when HealthKit is enabled.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>VitalScore uses the camera only for the optional eye-focus test. The test is for wellness trends and is not a medical diagnosis.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>VitalScore uses the microphone for the optional voice tracking check. Audio is analyzed live for wellness trends and is not stored.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UIApplicationSceneManifest</key>
@@ -31,5 +35,7 @@
 		<key>UIApplicationSupportsMultipleScenes</key>
 		<false/>
 	</dict>
+	<key>UILaunchScreen</key>
+	<dict/>
 </dict>
 </plist>
