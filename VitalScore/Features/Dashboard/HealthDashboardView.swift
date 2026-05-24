@@ -10,6 +10,7 @@ struct HealthDashboardView: View {
     @State private var showAdvancedVoiceTracking = false
     @State private var showVoiceAnalysis = false
     @State private var showWellnessHistory = false
+    @State private var showBusinessPlans = false
     @State private var lastWellnessResult: WellnessDeltaResult?
     @State private var showSettings = false
     @State private var showEyeFocusLogs = false
@@ -31,6 +32,7 @@ struct HealthDashboardView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     dashboardFilterControls
                     wellnessScoreCard
+                    businessPlanCard
                     healthMetricGrid
                     trackingActionsRow
                     analysisOverview
@@ -123,6 +125,9 @@ struct HealthDashboardView: View {
             }
             .navigationDestination(isPresented: $showVoiceAnalysis) {
                 VoiceAnalysisDashboardView(sessions: filteredVoiceSessions)
+            }
+            .navigationDestination(isPresented: $showBusinessPlans) {
+                BusinessPlansView()
             }
         }
     }
@@ -256,6 +261,41 @@ struct HealthDashboardView: View {
                 showAdvancedVoiceTracking = true
             }
         }
+    }
+
+    private var businessPlanCard: some View {
+        Button {
+            showBusinessPlans = true
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "briefcase.fill")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.indigo)
+                    .frame(width: 32, height: 32)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Business Plan")
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Text("School pilots + consumer subscription")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.secondarySystemBackground))
+            .cornerRadius(8)
+        }
+        .buttonStyle(.plain)
     }
 
     private var analysisOverview: some View {
