@@ -32,6 +32,12 @@
 	<string>$(VITALSCORE_AI_DIALOG_ENDPOINT)</string>
 	<key>VitalScoreAIVoiceIdentifier</key>
 	<string>$(VITALSCORE_AI_VOICE_IDENTIFIER)</string>
+	<key>VitalScoreVoiceTranscriptionProvider</key>
+	<string>$(VITALSCORE_VOICE_TRANSCRIPTION_PROVIDER)</string>
+	<key>VitalScoreSpeechRecognitionMode</key>
+	<string>$(VITALSCORE_SPEECH_RECOGNITION_MODE)</string>
+	<key>VitalScoreAITranscriptionModel</key>
+	<string>$(VITALSCORE_AI_TRANSCRIPTION_MODEL)</string>
 	<key>VitalScoreOpenAIAPIKey</key>
 	<string>$(VITALSCORE_OPENAI_API_KEY)</string>
 	<key>VitalScoreOpenAIModel</key>

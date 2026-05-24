@@ -14,6 +14,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ENV_PATH = PROJECT_ROOT / ".env"
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
+OPENAI_REALTIME_TRANSCRIPTION_SESSIONS_URL = "https://api.openai.com/v1/realtime/transcription_sessions"
 MAX_BODY_BYTES = 12_000_000
 MAX_AUDIO_SAMPLE_COUNT = 6
 
@@ -67,6 +68,9 @@ VOICE_ANALYSIS_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
+        "aiVoiceScore": {"type": "number", "minimum": 0, "maximum": 100},
+        "aiScoreConfidence": {"type": "string", "enum": ["Low", "Medium", "High"]},
+        "aiScoreRationale": {"type": "string"},
         "summary": {"type": "string"},
         "dataQuality": {
             "type": "array",
@@ -91,6 +95,9 @@ VOICE_ANALYSIS_SCHEMA = {
         "safetyNote": {"type": "string"},
     },
     "required": [
+        "aiVoiceScore",
+        "aiScoreConfidence",
+        "aiScoreRationale",
         "summary",
         "dataQuality",
         "notableSignals",
@@ -163,6 +170,7 @@ def parse_json_text(text: str) -> dict:
 
 def voice_analysis_prompt(payload: dict, includes_audio: bool) -> dict:
     analysis_export = payload.get("analysisExport") or {}
+    question_background = payload.get("questionBackground") or {}
     audio_samples = [
         {
             "id": sample.get("id"),
@@ -181,9 +189,20 @@ def voice_analysis_prompt(payload: dict, includes_audio: bool) -> dict:
     ]
 
     constraints = [
+        "This is post-session scoring for the saved VitalScore Voice service input data.",
+        "Do not generate live AI conversation prompts or chat replies.",
         "Use the analysisExport as the source of truth.",
         "Use questionBackground to explain what each voice task was intended to capture.",
         "Use recentVoiceHistory only for longitudinal context and baseline readiness.",
+        "Use recentDailyRecords as related wellness context when judging whether this voice session is improved, steady, or lower than recent history.",
+        "If questionBackground.mode is fixed_prompt, score from saved fixed prompts, acoustic task metrics, capture quality, recentVoiceHistory, and recentDailyRecords; a conversation transcript is not required and should not be treated as missing.",
+        "If questionBackground.mode is advanced_freestyle_talk, also use saved assistant prompts, user transcripts, conversation summary, and turn durations.",
+        "Set aiVoiceScore to a 0-100 wellness voice score for this completed session using saved session inputs: analysisExport.featureVector, voiceSession.result.taskAnalyses, questionBackground.questionSet, transcript content when present, acoustic feature quality, recentVoiceHistory, recentDailyRecords, and optional audio samples.",
+        "Compare to recentVoiceHistory when available; improvement means cleaner capture quality, steadier task completion, fewer quality issues, stronger usable speech signal, or better consistency with the user's own recent baseline.",
+        "When fewer than seven usable prior sessions exist, rely more on capture quality and task completeness and set confidence Low or Medium.",
+        "Keep aiVoiceScore conservative: do not score medical risk, identity, emotion, disease, or diagnosis. Score only usable wellness-check signal quality and non-diagnostic trend consistency.",
+        "Set aiScoreConfidence to Low, Medium, or High based on data quality, transcript completeness, and baseline availability.",
+        "Set aiScoreRationale to one short sentence explaining the main non-medical reason for the score.",
         "Discuss task quality, missing modalities, baseline readiness, and top changed drivers when available.",
         "Prefer validated or stable proxy acoustic features; do not rely on unsupported placeholder fields.",
         "Do not diagnose, treat, predict disease, mention disorders, or imply a medical condition.",
@@ -206,8 +225,9 @@ def voice_analysis_prompt(payload: dict, includes_audio: bool) -> dict:
         "constraints": constraints,
         "exportFileName": payload.get("exportFileName"),
         "analysisExport": analysis_export,
-        "questionBackground": payload.get("questionBackground") or {},
+        "questionBackground": question_background,
         "recentVoiceHistory": payload.get("recentVoiceHistory") or [],
+        "recentDailyRecords": payload.get("recentDailyRecords") or [],
         "audioSampleManifest": audio_samples,
         "requiredJsonShape": VOICE_ANALYSIS_SCHEMA,
     }
@@ -227,13 +247,14 @@ def openai_conversation_plan(payload: dict) -> dict:
         "constraints": [
             "Return exactly one conversationTurn for the opening AI conversation prompt.",
             "This opening prompt is question 1 of a 4-question conversation; later turns will be generated after each user answer.",
-            "Set targetDurationSeconds to 45.",
+            "The full live conversation should last about 2 to 3 minutes across 4 turns.",
+            "Set targetDurationSeconds to 35 for each user response window.",
             "Use only the provided voice tracking context and recent history.",
             "Do not diagnose, treat, predict disease, or imply a medical condition.",
             "Do not claim voice features caused a health or wellness state.",
             "Ask one warm, natural question about how the user feels right now.",
             "Avoid sounding like a survey, fixed script, or post-analysis.",
-            "Make it easy to answer aloud in a few seconds.",
+            "Make it easy to answer aloud in 25 to 35 seconds.",
             "Set promptTag to ai_voice_conversation_v1.",
             "Set source to openai.",
         ],
@@ -316,6 +337,7 @@ def openai_chat_turn(payload: dict) -> dict:
         "constraints": [
             "Use the latest transcribed user response and prior turn history.",
             "Ground the follow-up in a concrete detail from latestUserTranscript.",
+            "The full live conversation should last about 2 to 3 minutes across 4 turns.",
             "Reply with one short spoken sentence when possible.",
             "If another turn remains, acknowledge briefly and ask one simple follow-up.",
             "The follow-up question must be different from every item in previousAssistantReplies.",
@@ -543,6 +565,76 @@ def openai_voice_audio_analysis(payload: dict) -> dict:
     return result
 
 
+def openai_realtime_transcription_session(payload: dict) -> dict:
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not configured in .env")
+
+    model = (
+        payload.get("model")
+        or os.environ.get("VITALSCORE_AI_TRANSCRIPTION_MODEL")
+        or "gpt-realtime-whisper"
+    )
+    language = (
+        payload.get("language")
+        or os.environ.get("VITALSCORE_AI_TRANSCRIPTION_LANGUAGE")
+        or "en"
+    )
+    delay = (
+        payload.get("delay")
+        or os.environ.get("VITALSCORE_AI_TRANSCRIPTION_DELAY")
+        or "low"
+    )
+
+    transcription_config = {
+        "model": model,
+        "language": language,
+    }
+    if model == "gpt-realtime-whisper":
+        transcription_config["delay"] = delay
+    else:
+        transcription_config["prompt"] = (
+            payload.get("prompt")
+            or "VitalScore wellness check-in. Expect terms about energy, focus, stress, sleep, workload, hydration, routine, exercise, meditation, screen time, caffeine, meetings, and commute."
+        )
+
+    request_body = {
+        "modalities": ["audio", "text"],
+        "input_audio_format": "pcm16",
+        "input_audio_noise_reduction": {
+            "type": payload.get("noiseReduction") or "near_field",
+        },
+        "input_audio_transcription": transcription_config,
+        "turn_detection": {
+            "type": "server_vad",
+            "threshold": float(payload.get("vadThreshold") or 0.45),
+            "prefix_padding_ms": int(payload.get("prefixPaddingMs") or 300),
+            "silence_duration_ms": int(payload.get("silenceDurationMs") or 500),
+        },
+        "include": ["item.input_audio_transcription.logprobs"],
+    }
+
+    request = urllib.request.Request(
+        OPENAI_REALTIME_TRANSCRIPTION_SESSIONS_URL,
+        data=json.dumps(request_body).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        body = error.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"OpenAI realtime transcription session failed with {error.code}: {body}") from error
+
+    data["source"] = "openai_realtime_transcription"
+    return data
+
+
 class DialogHandler(BaseHTTPRequestHandler):
     server_version = "VitalScoreAIConversation/1.0"
 
@@ -558,7 +650,13 @@ class DialogHandler(BaseHTTPRequestHandler):
         self.send_json(200, {"status": "ok"})
 
     def do_POST(self) -> None:
-        if self.path not in ("/ai/voice-conversation", "/ai/voice-dialog", "/ai/voice-chat-turn", "/ai/voice-analysis"):
+        if self.path not in (
+            "/ai/voice-conversation",
+            "/ai/voice-dialog",
+            "/ai/voice-chat-turn",
+            "/ai/voice-analysis",
+            "/ai/realtime-transcription-session",
+        ):
             self.send_json(404, {"error": "not_found"})
             return
 
@@ -568,7 +666,9 @@ class DialogHandler(BaseHTTPRequestHandler):
             if provider != "openai":
                 self.send_json(400, {"error": f"Unsupported AI provider: {provider}"})
                 return
-            if self.path == "/ai/voice-chat-turn":
+            if self.path == "/ai/realtime-transcription-session":
+                response = openai_realtime_transcription_session(payload)
+            elif self.path == "/ai/voice-chat-turn":
                 response = openai_chat_turn(payload)
             elif self.path == "/ai/voice-analysis":
                 response = openai_voice_analysis(payload)
@@ -615,6 +715,7 @@ def main() -> int:
     print("POST /ai/voice-conversation")
     print("POST /ai/voice-chat-turn")
     print("POST /ai/voice-analysis")
+    print("POST /ai/realtime-transcription-session")
     server.serve_forever()
     return 0
 

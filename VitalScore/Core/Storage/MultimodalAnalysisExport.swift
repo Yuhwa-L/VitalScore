@@ -24,6 +24,14 @@ struct MultimodalAnalysisExport: Codable, Identifiable {
     let eyeFocusResult: EyeFocusTestResult?
     let voiceSession: VoiceTrackingSession?
 
+    var containsLocallySavedLiveVoiceData: Bool {
+        voiceSession?.containsLocallySavedLiveData == true ||
+        availableModalities.contains("voice_conversation_transcript") ||
+        availableModalities.contains("voice_conversation_summary") ||
+        textContext.contains { $0.contains("AI conversation turn") || $0.contains("AI conversation short summary") } ||
+        featureVector.keys.contains { $0.hasPrefix("voice.ai_conversation.turn_") }
+    }
+
     static func eyeFocus(result: EyeFocusTestResult, dailyRecord: DailyHealthRecord?) -> MultimodalAnalysisExport {
         MultimodalAnalysisExport(
             id: UUID(),

@@ -34,7 +34,12 @@ while IFS= read -r line || [ -n "$line" ]; do
         VITALSCORE_AI_PROVIDER|\
         VITALSCORE_AI_DIALOG_MODEL|\
         VITALSCORE_AI_DIALOG_ENDPOINT|\
-        VITALSCORE_AI_VOICE_IDENTIFIER)
+        VITALSCORE_AI_VOICE_IDENTIFIER|\
+        VITALSCORE_VOICE_TRANSCRIPTION_PROVIDER|\
+        VITALSCORE_SPEECH_RECOGNITION_MODE|\
+        VITALSCORE_AI_TRANSCRIPTION_MODEL|\
+        VITALSCORE_OPENAI_API_KEY|\
+        VITALSCORE_OPENAI_MODEL)
             value=$(printf "%s" "$value" | sed 's#://#:/\$()/#g')
             printf "%s = %s\n" "$key" "$value" >> "$output_file"
             ;;

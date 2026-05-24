@@ -7,7 +7,6 @@ struct HealthDashboardView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var showEyeFocusTest = false
-    @State private var showVoiceTracking = false
     @State private var showAdvancedVoiceTracking = false
     @State private var showVoiceAnalysis = false
     @State private var showWellnessHistory = false
@@ -30,22 +29,30 @@ struct HealthDashboardView: View {
                     healthMetricGrid
                     trackingActionsRow
                     analysisOverview
-                    advancedVoiceFeature
                 }
                 .padding()
             }
             .navigationTitle("Dashboard")
             .refreshable {
                 await healthKit.fetchAllLatest()
+                syncHealthValuesFromLatestStoredRecord()
             }
             .task {
                 await healthKit.fetchAllLatest()
+                syncHealthValuesFromLatestStoredRecord()
                 refreshWellnessFromStorage()
             }
             .onChange(of: scenePhase) { _, newPhase in
                 if newPhase == .active {
-                    Task { await healthKit.fetchAllLatest() }
+                    Task {
+                        await healthKit.fetchAllLatest()
+                        syncHealthValuesFromLatestStoredRecord()
+                    }
                 }
+            }
+            .onChange(of: storage.revision) { _, _ in
+                syncHealthValuesFromLatestStoredRecord()
+                refreshWellnessFromStorage()
             }
             .overlay(alignment: .top) {
                 if healthKit.isFetching {
@@ -60,7 +67,10 @@ struct HealthDashboardView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        Task { await healthKit.fetchAllLatest() }
+                        Task {
+                            await healthKit.fetchAllLatest()
+                            syncHealthValuesFromLatestStoredRecord()
+                        }
                     } label: {
                         Image(systemName: "arrow.clockwise")
                     }
@@ -85,22 +95,13 @@ struct HealthDashboardView: View {
             .navigationDestination(isPresented: $showEyeFocusTest) {
                 EyeFocusTestView(onFinished: handleEyeFocusFinished)
             }
-            .navigationDestination(isPresented: $showVoiceTracking) {
-                VoiceTrackingView(
-                    mode: .fixedPrompt,
-                    previousSessions: storage.loadVoiceSessions(),
-                    experimentTag: trackingTag,
-                    onAnalysisRequested: prepareVoiceTrackingSessionForAIAnalysis,
-                    onFinished: finishVoiceTrackingFlow
-                )
-            }
             .navigationDestination(isPresented: $showAdvancedVoiceTracking) {
                 VoiceTrackingView(
                     mode: .advancedFreestyle,
                     previousSessions: storage.loadVoiceSessions(),
                     experimentTag: trackingTag,
-                    onAnalysisRequested: prepareVoiceTrackingSessionForAIAnalysis,
-                    onFinished: finishAdvancedVoiceTrackingFlow
+                    onAnalysisRequested: scoreCompletedVoiceSessionWithAPI,
+                    onFinished: finishVoiceTrackingFlow
                 )
             }
             .navigationDestination(isPresented: $showVoiceAnalysis) {
@@ -171,7 +172,7 @@ struct HealthDashboardView: View {
                 systemImage: "waveform.path.ecg",
                 tint: .teal
             ) {
-                showVoiceTracking = true
+                showAdvancedVoiceTracking = true
             }
         }
     }
@@ -198,34 +199,6 @@ struct HealthDashboardView: View {
                 action: { showVoiceAnalysis = true }
             )
         }
-    }
-
-    private var advancedVoiceFeature: some View {
-        Button {
-            showAdvancedVoiceTracking = true
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "sparkles")
-                    .font(.headline)
-                    .foregroundStyle(.teal)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Advanced Freestyle Talk")
-                        .font(.subheadline.weight(.semibold))
-                    Text("Optional AI-guided voice conversation for advanced users.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding()
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(.secondarySystemBackground))
-            .cornerRadius(8)
-        }
-        .buttonStyle(.plain)
     }
 
     private func trackingButton(
@@ -420,33 +393,43 @@ struct HealthDashboardView: View {
     }
 
     @MainActor
-    private func prepareVoiceTrackingSessionForAIAnalysis(_ session: VoiceTrackingSession) async -> VoiceAIAnalysisResponse? {
+    private func scoreCompletedVoiceSessionWithAPI(_ session: VoiceTrackingSession) async -> VoiceAIAnalysisResponse? {
         guard let exportURL = persistVoiceTrackingSession(session) else {
             return VoiceAIConversationBuilder.localAnalysisSummary(
-                for: session,
+                for: session.removingLocallySavedLiveData(),
                 exportId: session.id,
                 unavailableReason: "analysis export could not be written"
             )
         }
 
+        let shouldPersistAnalysis = !session.containsLocallySavedLiveData
+        let analysisExport = MultimodalAnalysisExport.voice(session: session, dailyRecord: todayRecord)
         let recentSessions = storage.loadVoiceSessions()
+        let recentRecords = storage.loadAllRecords()
         do {
             let analysis = try await AIConversationClient().analyzeVoiceExport(
-                at: exportURL,
-                recentVoiceSessions: recentSessions
+                analysisExport,
+                exportFileName: exportURL.lastPathComponent,
+                recentVoiceSessions: recentSessions,
+                recentDailyRecords: recentRecords
             )
-            storage.writeVoiceAIAnalysisResult(analysis, exportFileURL: exportURL)
+            applyAIScoreIfAvailable(analysis, to: session)
+            if shouldPersistAnalysis {
+                storage.writeVoiceAIAnalysisResult(analysis, exportFileURL: exportURL)
+            }
             return analysis
-        } catch AIConversationClientError.missingEndpoint {
+        } catch AIConversationClientError.missingAPIKey {
             #if DEBUG
-            print("Voice AI analysis skipped because no endpoint is configured.")
+            print("Voice AI analysis skipped because no OpenAI API key is configured.")
             #endif
             let fallback = localVoiceAnalysisFallback(
                 for: session,
                 exportURL: exportURL,
-                reason: "AI endpoint is not configured"
+                reason: "OpenAI API key is not configured"
             )
-            storage.writeVoiceAIAnalysisResult(fallback, exportFileURL: exportURL)
+            if shouldPersistAnalysis {
+                storage.writeVoiceAIAnalysisResult(fallback, exportFileURL: exportURL)
+            }
             return fallback
         } catch {
             #if DEBUG
@@ -457,9 +440,69 @@ struct HealthDashboardView: View {
                 exportURL: exportURL,
                 reason: error.localizedDescription
             )
-            storage.writeVoiceAIAnalysisResult(fallback, exportFileURL: exportURL)
+            if shouldPersistAnalysis {
+                storage.writeVoiceAIAnalysisResult(fallback, exportFileURL: exportURL)
+            }
             return fallback
         }
+    }
+
+    private func applyAIScoreIfAvailable(_ analysis: VoiceAIAnalysisResponse, to session: VoiceTrackingSession) {
+        guard let aiScore = analysis.aiVoiceScore else { return }
+        let boundedScore = min(100, max(0, aiScore))
+        let confidence = analysis.aiScoreConfidence?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rationale = analysis.aiScoreRationale?.trimmingCharacters(in: .whitespacesAndNewlines)
+        var topDrivers = session.result.topDrivers
+        if let rationale, !rationale.isEmpty, !session.containsLocallySavedLiveData {
+            topDrivers.insert("AI score rationale: \(rationale)", at: 0)
+        }
+
+        let updatedResult = session.result.scored(
+            voiceScore: boundedScore,
+            confidence: confidence?.isEmpty == false ? confidence! : session.result.voiceConfidence,
+            baselineSessionsUsed: session.result.baselineSessionsUsed,
+            baselineStatus: "ai_analysis_scored",
+            topDrivers: topDrivers
+        )
+        let updatedSession = session.replacingResult(updatedResult)
+        storage.saveVoiceSession(updatedSession)
+
+        let existing = todayRecord
+        let updatedRecord = DailyHealthRecord(
+            id: existing?.id ?? UUID(),
+            date: existing?.date ?? Date(),
+            experimentTag: existing?.experimentTag ?? trackingTag,
+            sleepHours: existing?.sleepHours ?? healthKit.lastNightSleepHours,
+            restingHeartRateBPM: existing?.restingHeartRateBPM ?? healthKit.latestRestingHeartRate,
+            hrvMs: existing?.hrvMs ?? healthKit.latestHRV,
+            stepCount: existing?.stepCount ?? healthKit.todaySteps,
+            activeEnergyKcal: existing?.activeEnergyKcal ?? healthKit.todayActiveEnergy,
+            eyeFocusScore: existing?.eyeFocusScore,
+            averageReactionMs: existing?.averageReactionMs,
+            reactionStdDevMs: existing?.reactionStdDevMs,
+            missedTargets: existing?.missedTargets,
+            falseTaps: existing?.falseTaps,
+            gazeAccuracyPx: existing?.gazeAccuracyPx,
+            gazeStabilityPx: existing?.gazeStabilityPx,
+            gazeFixationMs: existing?.gazeFixationMs,
+            gazeBlinkRatePerMin: existing?.gazeBlinkRatePerMin,
+            gazeTrackingLossPct: existing?.gazeTrackingLossPct,
+            gazeScore: existing?.gazeScore,
+            balanceScore: existing?.balanceScore,
+            swayIndex: existing?.swayIndex,
+            voiceScore: boundedScore,
+            voiceAverageVolumeDb: updatedResult.averageVolumeDb,
+            voiceVolumeStdDevDb: updatedResult.volumeStdDevDb,
+            voiceSilenceRatio: updatedResult.silenceRatio,
+            voicePeakVolumeDb: updatedResult.peakVolumeDb,
+            selfReportedEnergy: existing?.selfReportedEnergy,
+            selfReportedStress: existing?.selfReportedStress,
+            selfReportedSleepQuality: existing?.selfReportedSleepQuality,
+            wellnessDeltaScore: existing?.wellnessDeltaScore ?? 0,
+            confidenceLevel: existing?.confidenceLevel ?? "Low",
+            insightText: existing?.insightText ?? ""
+        )
+        _ = saveRecordWithWellness(updatedRecord, baseline: baseline)
     }
 
     private func localVoiceAnalysisFallback(
@@ -473,7 +516,7 @@ struct HealthDashboardView: View {
             .flatMap { try? decoder.decode(MultimodalAnalysisExport.self, from: $0) })?.id
             ?? session.id
         return VoiceAIConversationBuilder.localAnalysisSummary(
-            for: session,
+            for: session.removingLocallySavedLiveData(),
             exportId: exportId,
             unavailableReason: reason
         )
@@ -482,8 +525,9 @@ struct HealthDashboardView: View {
     @discardableResult
     private func persistVoiceTrackingSession(_ session: VoiceTrackingSession) -> URL? {
         let existing = todayRecord
-        let result = session.result
-        storage.saveVoiceSession(session)
+        let scrubbedSession = session.removingLocallySavedLiveData()
+        let result = scrubbedSession.result
+        storage.saveVoiceSession(scrubbedSession)
 
         let record = DailyHealthRecord(
             id: existing?.id ?? UUID(),
@@ -520,17 +564,12 @@ struct HealthDashboardView: View {
             insightText: existing?.insightText ?? ""
         )
         let finalRecord = saveRecordWithWellness(record, baseline: baseline)
-        return storage.writeVoiceAnalysisExport(session: session, dailyRecord: finalRecord)
+        return storage.writeVoiceAnalysisExport(session: scrubbedSession, dailyRecord: finalRecord)
     }
 
     private func finishVoiceTrackingFlow(_ session: VoiceTrackingSession) {
-        showVoiceTracking = false
-        showVoiceAnalysis = true
-    }
-
-    private func finishAdvancedVoiceTrackingFlow(_ session: VoiceTrackingSession) {
-        finishVoiceTrackingFlow(session)
         showAdvancedVoiceTracking = false
+        showVoiceAnalysis = true
     }
 
     private func saveRecordWithWellness(_ record: DailyHealthRecord, baseline: BaselineMetrics) -> DailyHealthRecord {
@@ -583,6 +622,11 @@ struct HealthDashboardView: View {
             availableMetricCount: 0,
             positiveMetricCount: 0
         )
+    }
+
+    private func syncHealthValuesFromLatestStoredRecord() {
+        guard let record = storage.loadAllRecords().sorted(by: { $0.date < $1.date }).last else { return }
+        healthKit.applyMockRecord(record)
     }
 
     private func detailText(_ label: String, value: String?, unit: String) -> String {

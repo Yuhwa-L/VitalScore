@@ -97,6 +97,7 @@ struct VoiceAIAnalysisRequestPayload: Codable {
     let analysisExport: MultimodalAnalysisExport
     let questionBackground: VoiceAIQuestionProtocolContext
     let recentVoiceHistory: [VoiceAIConversationSessionSummary]
+    let recentDailyRecords: [DailyHealthRecord]
     let debugAudioSamples: [VoiceAIAudioSamplePayload]
 }
 
@@ -120,6 +121,9 @@ struct VoiceAIAnalysisResponse: Codable, Equatable, Identifiable {
     let exportId: UUID
     let createdAt: Date
     let source: String
+    let aiVoiceScore: Double?
+    let aiScoreConfidence: String?
+    let aiScoreRationale: String?
     let summary: String
     let dataQuality: [String]
     let notableSignals: [String]
@@ -161,6 +165,9 @@ struct VoiceAIAnalysisIndexEntry: Codable {
 
 enum VoiceAIConversationBuilder {
     static let advancedConversationQuestionCount = 4
+    static let advancedConversationTurnTargetSeconds: TimeInterval = 35
+    static let advancedConversationTotalTargetSeconds = advancedConversationTurnTargetSeconds
+        * TimeInterval(advancedConversationQuestionCount)
     static let fixedPromptTag = "fixed_voice_check_v1"
     static let fixedPromptVersion = "fixed_voice_check_v1"
     static let promptTag = "ai_voice_conversation_v1"
@@ -168,24 +175,28 @@ enum VoiceAIConversationBuilder {
     static let fallbackFreeTalkPrompt = "Hi, I am here with you. How are your energy and focus feeling right now?"
     static let systemInstruction = """
     You create the first spoken line for VitalScore's advanced AI voice conversation. This is a live check-in, \
-    not a fixed acoustic test and not post-analysis. Start naturally with one short, friendly question about how \
-    the user feels right now: energy, focus, stress, sleep, workload, environment, or routine. Avoid diagnosis, \
-    treatment, disease prediction, and causal claims. Keep it easy to answer aloud in a few seconds.
+    not a fixed acoustic test and not post-analysis. The full conversation is targeted to last about 2 to 3 \
+    minutes across roughly 4 short turns, so each prompt must invite an answer that fits in 25 to 35 seconds. \
+    Start naturally with one short, friendly question about how the user feels right now: energy, focus, stress, \
+    sleep, workload, environment, or routine. Avoid diagnosis, treatment, disease prediction, and causal claims.
     """
     static let chatTurnSystemInstruction = """
-    You are the speaking AI guide in VitalScore's advanced voice talk. Respond like a concise, warm conversation \
-    partner. Use a concrete detail from the user's latest transcribed answer and prior turns. Acknowledge briefly, \
-    then ask one simple personalized follow-up when another turn remains. Do not repeat any previous assistant \
-    question or generic fallback wording. When this is the final turn, return one short summary of the user's \
-    answers and do not ask another question. Avoid scripted survey wording, diagnosis, treatment advice, disease \
-    prediction, and causal claims. Keep each spoken reply under 18 words when possible.
+    You are the speaking AI guide in VitalScore's advanced voice talk. The total conversation is targeted at \
+    2 to 3 minutes across about 4 turns, so each reply must stay short and each new question must invite an \
+    answer that fits in 25 to 35 seconds. Respond like a concise, warm conversation partner. Use a concrete \
+    detail from the user's latest transcribed answer and prior turns. Acknowledge briefly, then ask one simple \
+    personalized follow-up when another turn remains. Do not repeat any previous assistant question or generic \
+    fallback wording. When this is the final turn, return one short summary of the user's answers and do not ask \
+    another question. Avoid scripted survey wording, diagnosis, treatment advice, disease prediction, and causal \
+    claims. Keep each spoken reply under 18 words when possible.
     """
     static let analysisSystemInstruction = """
-    You analyze completed VitalScore voice-check exports for wellness trend reflection. Use only the supplied \
-    structured data, task/question background, transcripts, and recent history. Explain task quality, missing data, \
-    baseline readiness, and notable acoustic or transcript signals without diagnosing, treating, predicting disease, \
-    or making causal health claims. Keep the top summary short. Prefer validated or stable proxy acoustic fields; \
-    label uncertainty clearly.
+    You score completed VitalScore Voice service sessions after recording has ended. Use only the saved structured \
+    export, task/question background, acoustic task metrics, transcripts when present, recent voice history, and recent \
+    daily records. This is not the live conversation prompt generator. For fixed-prompt Voice Check sessions, missing \
+    conversation transcript is expected and must not reduce the score. Explain task quality, baseline readiness, and \
+    notable saved-data signals without diagnosing, treating, predicting disease, or making causal health claims. Keep \
+    the top summary short. Prefer validated or stable proxy acoustic fields; label uncertainty clearly.
     """
 
     static func makeContext(
@@ -204,7 +215,8 @@ enum VoiceAIConversationBuilder {
             requiredAcousticTasks: [
                 "advanced AI voice talk only",
                 "no fixed ahh, counting, or reading prompts",
-                "short natural user replies with transcript and acoustic feature capture"
+                "short natural user replies with transcript and acoustic feature capture",
+                "target total conversation length 2 to 3 minutes across about 4 turns (25 to 35 seconds per user reply)"
             ],
             desiredConversationTurns: advancedConversationQuestionCount,
             guardrails: [
@@ -227,7 +239,7 @@ enum VoiceAIConversationBuilder {
                     id: "ai_free_talk_turn_1",
                     title: "AI Conversation",
                     prompt: fallbackFreeTalkPrompt,
-                    targetDurationSeconds: 45
+                    targetDurationSeconds: advancedConversationTurnTargetSeconds
                 )
             ],
             safetyNote: "This voice check supports wellness reflection only and is not a diagnosis.",
@@ -405,6 +417,9 @@ enum VoiceAIConversationBuilder {
             exportId: exportId,
             createdAt: Date(),
             source: "local_summary_fallback",
+            aiVoiceScore: result.voiceScore,
+            aiScoreConfidence: result.voiceConfidence,
+            aiScoreRationale: "Remote AI score was unavailable, so the local acoustic and baseline score was retained.",
             summary: "This voice check was saved. Voice score was \(Int(result.voiceScore.rounded())) with \(result.voiceConfidence.lowercased()) confidence, and capture quality was \(qualityPercent)%. \(baselineText)",
             dataQuality: dataQuality,
             notableSignals: notableSignals,
@@ -459,7 +474,7 @@ enum VoiceAIConversationBuilder {
             id: first.id.isEmpty ? "ai_free_talk_turn_1" : first.id,
             title: first.title.isEmpty ? "AI Conversation" : first.title,
             prompt: prompt.isEmpty ? fallbackFreeTalkPrompt : prompt,
-            targetDurationSeconds: 45
+            targetDurationSeconds: advancedConversationTurnTargetSeconds
         )
 
         return VoiceAIConversationPlan(
@@ -478,7 +493,7 @@ enum VoiceAIConversationBuilder {
         }
 
         var generatedTasks: [VoiceTaskDefinition] = []
-        let turns = plan.conversationTurns.prefix(2)
+        let turns = plan.conversationTurns.prefix(1)
         for (index, turn) in turns.enumerated() {
             generatedTasks.append(
                 VoiceTaskDefinition(
@@ -486,8 +501,8 @@ enum VoiceAIConversationBuilder {
                     promptId: turn.id.isEmpty ? "ai_conversation_turn_\(index + 1)" : turn.id,
                     title: turn.title.isEmpty ? "Conversation \(index + 1)" : turn.title,
                     instruction: turn.prompt,
-                    targetDurationSeconds: min(75, max(30, turn.targetDurationSeconds)),
-                    minimumUsableDurationSeconds: min(30, max(8, turn.targetDurationSeconds * 0.25)),
+                    targetDurationSeconds: advancedConversationTotalTargetSeconds,
+                    minimumUsableDurationSeconds: min(30, advancedConversationTurnTargetSeconds),
                     allowsEarlyFinish: true
                 )
             )
@@ -500,8 +515,8 @@ enum VoiceAIConversationBuilder {
                     promptId: "ai_free_talk_turn_1",
                     title: "AI Conversation",
                     instruction: fallbackFreeTalkPrompt,
-                    targetDurationSeconds: 45,
-                    minimumUsableDurationSeconds: 8,
+                    targetDurationSeconds: advancedConversationTotalTargetSeconds,
+                    minimumUsableDurationSeconds: min(30, advancedConversationTurnTargetSeconds),
                     allowsEarlyFinish: true
                 )
             ]
