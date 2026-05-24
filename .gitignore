@@ -7,6 +7,10 @@ DerivedData/
 # Generated Xcode project (regenerate with `xcodegen generate`)
 *.xcodeproj/
 
+# Local machine configuration
+.env
+Config/Local.xcconfig
+
 # macOS
 .DS_Store
 

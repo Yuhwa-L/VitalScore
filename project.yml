@@ -8,8 +8,10 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.9"
-    DEVELOPMENT_TEAM: "AKH988XY67"
-    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: "$(VITALSCORE_DEVELOPMENT_TEAM)"
+    CODE_SIGN_STYLE: "$(VITALSCORE_CODE_SIGN_STYLE)"
+    CODE_SIGN_IDENTITY: "$(VITALSCORE_CODE_SIGN_IDENTITY)"
+    PROVISIONING_PROFILE_SPECIFIER: "$(VITALSCORE_PROVISIONING_PROFILE_SPECIFIER)"
 
 targets:
   VitalScore:
@@ -24,9 +26,12 @@ targets:
       - path: VitalScore/Resources/MockData
         buildPhase: resources
         type: folder
+    configFiles:
+      Debug: Config/VitalScore.xcconfig
+      Release: Config/VitalScore.xcconfig
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.zeusya7015.vitalscore
+        PRODUCT_BUNDLE_IDENTIFIER: "$(VITALSCORE_BUNDLE_IDENTIFIER)"
         INFOPLIST_FILE: VitalScore/Resources/Info.plist
         GENERATE_INFOPLIST_FILE: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -45,9 +50,12 @@ targets:
       - path: VitalScoreTests
     dependencies:
       - target: VitalScore
+    configFiles:
+      Debug: Config/VitalScore.xcconfig
+      Release: Config/VitalScore.xcconfig
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.zeusya7015.vitalscore.tests
+        PRODUCT_BUNDLE_IDENTIFIER: "$(VITALSCORE_TEST_BUNDLE_IDENTIFIER)"
 
 schemes:
   VitalScore:

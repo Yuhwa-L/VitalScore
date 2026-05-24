@@ -78,6 +78,17 @@ project.yml                                # XcodeGen spec (Xcode project is gen
 
 The `VitalScore.xcodeproj/` is generated and `.gitignore`d — regenerate with `xcodegen generate`.
 
+## Per-MacBook configuration
+
+Machine-specific signing and service URLs live in `.env`, which is intentionally ignored by git.
+
+1. Copy `.env.example` to `.env`.
+2. Set your Apple team, bundle identifiers, signing values, and URLs.
+3. Run `./scripts/generate-local-config.sh`.
+4. Run `xcodegen generate`.
+
+The generated `Config/Local.xcconfig` is also ignored. Xcode reads `Config/VitalScore.xcconfig`, which contains safe defaults and optionally includes `Config/Local.xcconfig` when present.
+
 ## Wellness score (current weights)
 
 `WellnessScoreEngine` weights five inputs against the rolling 7-day baseline:

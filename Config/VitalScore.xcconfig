@@ -1,0 +1,12 @@
+VITALSCORE_DEVELOPMENT_TEAM =
+VITALSCORE_BUNDLE_IDENTIFIER = com.vitalscore.app
+VITALSCORE_TEST_BUNDLE_IDENTIFIER = com.vitalscore.app.tests
+VITALSCORE_CODE_SIGN_STYLE = Automatic
+VITALSCORE_CODE_SIGN_IDENTITY = Apple Development
+VITALSCORE_PROVISIONING_PROFILE_SPECIFIER =
+
+VITALSCORE_API_BASE_URL = https:/$()/api.example.com
+VITALSCORE_PRIVACY_POLICY_URL = https:/$()/example.com/privacy
+VITALSCORE_TERMS_URL = https:/$()/example.com/terms
+
+#include? "Local.xcconfig"

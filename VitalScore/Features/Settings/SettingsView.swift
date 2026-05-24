@@ -50,8 +50,8 @@ struct SettingsView: View {
                     LabeledContent("App", value: "VitalScore")
                     LabeledContent("Version", value: Bundle.main.versionString)
                     LabeledContent("Build", value: Bundle.main.buildString)
-                    Link("Privacy Policy", destination: URL(string: "https://example.com/privacy")!)
-                    Link("Terms of Service", destination: URL(string: "https://example.com/terms")!)
+                    Link("Privacy Policy", destination: Bundle.main.privacyPolicyURL)
+                    Link("Terms of Service", destination: Bundle.main.termsURL)
                 }
 
                 Section {
@@ -95,5 +95,22 @@ extension Bundle {
     }
     var buildString: String {
         (infoDictionary?["CFBundleVersion"] as? String) ?? "—"
+    }
+
+    var apiBaseURL: URL {
+        configuredURL(for: "VitalScoreAPIBaseURL", fallback: "https://api.example.com")
+    }
+
+    var privacyPolicyURL: URL {
+        configuredURL(for: "VitalScorePrivacyPolicyURL", fallback: "https://example.com/privacy")
+    }
+
+    var termsURL: URL {
+        configuredURL(for: "VitalScoreTermsURL", fallback: "https://example.com/terms")
+    }
+
+    private func configuredURL(for key: String, fallback: String) -> URL {
+        let rawValue = infoDictionary?[key] as? String
+        return URL(string: rawValue ?? fallback) ?? URL(string: fallback)!
     }
 }
