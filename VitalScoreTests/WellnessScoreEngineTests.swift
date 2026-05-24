@@ -3,6 +3,7 @@ import XCTest
 
 final class WellnessScoreEngineTests: XCTestCase {
     private let engine = WellnessScoreEngine()
+    private let suggestionEngine = WellnessSuggestionEngine()
     private let bannedPhrases = ["diagnose", "cure", "treat", "prevent", "proves", "caused"]
 
     func test_allMetricsMatchingBaseline_scoreNearZero_confidenceHigh() {
@@ -80,6 +81,26 @@ final class WellnessScoreEngineTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(result.score, -20)
     }
 
+    func test_localWellnessSuggestions_useHistoryAndAvoidMedicalClaims() {
+        let records = suggestionRecords()
+
+        let report = suggestionEngine.localReport(records: records, voiceSessions: [], tagFilter: "Morning")
+        let categories = Set(report.suggestions.map(\.category))
+
+        XCTAssertTrue(categories.contains(.sleep))
+        XCTAssertTrue(categories.contains(.nutrition))
+        XCTAssertFalse(report.suggestions.isEmpty)
+        XCTAssertTrue(report.suggestions.allSatisfy(\.notMedicalAdvice))
+
+        let suggestionText = report.suggestions
+            .flatMap { [$0.title, $0.reason, $0.suggestion, $0.trackingPlan] + $0.evidence }
+            .joined(separator: " ")
+            .lowercased()
+        for phrase in bannedPhrases {
+            XCTAssertFalse(suggestionText.contains(phrase), "Suggestion text contains banned phrase: \(phrase)")
+        }
+    }
+
     private func baseline(sleep: Double?, rhr: Double?, hrv: Double?, steps: Double?, focus: Double?) -> BaselineMetrics {
         BaselineMetrics(
             startDate: Date(), endDate: Date(),
@@ -106,5 +127,25 @@ final class WellnessScoreEngineTests: XCTestCase {
             confidenceLevel: "Low",
             insightText: ""
         )
+    }
+
+    private func suggestionRecords() -> [DailyHealthRecord] {
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        return (0..<8).map { offset in
+            let lowerDay = offset >= 5
+            return DailyHealthRecord(
+                date: start.addingTimeInterval(TimeInterval(offset * 86_400)),
+                experimentTag: "Morning",
+                sleepHours: lowerDay ? 5.9 : 7.7,
+                restingHeartRateBPM: lowerDay ? 70 : 61,
+                hrvMs: lowerDay ? 29 : 45,
+                stepCount: lowerDay ? 3_800 : 8_500,
+                eyeFocusScore: lowerDay ? 60 : 79,
+                voiceScore: lowerDay ? 57 : 74,
+                wellnessDeltaScore: lowerDay ? -9 : 6,
+                confidenceLevel: "Medium",
+                insightText: "Scored record"
+            )
+        }
     }
 }

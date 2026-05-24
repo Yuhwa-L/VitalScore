@@ -10,6 +10,7 @@ struct HealthDashboardView: View {
     @State private var showAdvancedVoiceTracking = false
     @State private var showVoiceAnalysis = false
     @State private var showWellnessHistory = false
+    @State private var showWellnessSuggestions = false
     @State private var lastWellnessResult: WellnessDeltaResult?
     @State private var showSettings = false
     @State private var showEyeFocusLogs = false
@@ -34,6 +35,7 @@ struct HealthDashboardView: View {
                     healthMetricGrid
                     trackingActionsRow
                     analysisOverview
+                    wellnessSuggestionsCard
                 }
                 .padding()
             }
@@ -106,6 +108,16 @@ struct HealthDashboardView: View {
                     WellnessHistoryView(
                         records: filteredRecords,
                         latestResult: latestWellnessResult
+                    )
+                }
+            }
+            .sheet(isPresented: $showWellnessSuggestions) {
+                NavigationStack {
+                    WellnessSuggestionsView(
+                        records: filteredRecords,
+                        voiceSessions: filteredVoiceSessions,
+                        tagFilter: selectedTagFilter,
+                        dateInterval: selectedDateInterval
                     )
                 }
             }
@@ -280,6 +292,40 @@ struct HealthDashboardView: View {
                 action: { showVoiceAnalysis = true }
             )
         }
+    }
+
+    private var wellnessSuggestionsCard: some View {
+        Button {
+            showWellnessSuggestions = true
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: "sparkles")
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(.blue)
+                    .frame(width: 34, height: 34)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("AI Suggestions")
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Text(suggestionCardSubtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.secondarySystemBackground))
+            .cornerRadius(8)
+        }
+        .buttonStyle(.plain)
     }
 
     private func trackingButton(
@@ -460,6 +506,13 @@ struct HealthDashboardView: View {
 
     private var latestVoiceSession: VoiceTrackingSession? {
         filteredVoiceSessions.sorted { $0.date < $1.date }.last
+    }
+
+    private var suggestionCardSubtitle: String {
+        if filteredRecords.count < 3 {
+            return "Save more wellness history for stronger personal suggestions."
+        }
+        return "Optional low-risk experiments based on your saved trends."
     }
 
     private func recordForToday(tagFilter: String?) -> DailyHealthRecord? {
