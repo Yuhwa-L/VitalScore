@@ -74,11 +74,11 @@ final class VoiceTrackingManager: ObservableObject {
         ),
         VoiceTaskDefinition(
             type: .counting,
-            promptId: "vw_en_v1_count_1_30",
+            promptId: "vw_en_v1_count_1_10",
             title: "Counting",
-            instruction: "Count from 1 to 30 at a normal pace.",
-            targetDurationSeconds: 12,
-            minimumUsableDurationSeconds: 8,
+            instruction: "Count from 1 to 10 at a normal pace.",
+            targetDurationSeconds: 6,
+            minimumUsableDurationSeconds: 4,
             allowsEarlyFinish: true
         ),
         VoiceTaskDefinition(
@@ -302,6 +302,7 @@ final class VoiceTrackingManager: ObservableObject {
         let stdDev = average(speechTasks.map { $0.volumeStdDevDb }) ?? 0
         let silenceRatio = average(speechTasks.map { $0.silenceRatio }) ?? 1
         let peak = tasks.map { $0.peakVolumeDb }.max() ?? -60
+        let eGeMAPS = aggregateEGeMAPS(from: speechTasks)
         let provisionalScore = calculateQualityOnlyScore(
             qualityScore: quality,
             volumeStdDevDb: stdDev,
@@ -322,6 +323,7 @@ final class VoiceTrackingManager: ObservableObject {
             usable: usable,
             qualityIssues: issues,
             taskAnalyses: tasks,
+            eGeMAPS: eGeMAPS,
             baselineSessionsUsed: 0,
             baselineStatus: "building_baseline",
             topDrivers: usable ? ["Building your personal voice baseline."] : issues,
@@ -391,7 +393,14 @@ final class VoiceTrackingManager: ObservableObject {
 
     static func makeResult(from samples: [Double], durationSeconds: TimeInterval) -> VoiceTrackingResult {
         let frames = samples.map {
-            VoiceFrameSummary(averagePowerDb: $0, peakAmplitude: 0, clippingPercentage: 0, zeroCrossingRate: 0)
+            VoiceFrameSummary(
+                averagePowerDb: $0,
+                peakAmplitude: 0,
+                clippingPercentage: 0,
+                zeroCrossingRate: 0,
+                f0Hz: nil,
+                hnrDb: nil
+            )
         }
         let task = analyzeTask(
             VoiceTaskDefinition(
@@ -427,6 +436,12 @@ final class VoiceTrackingManager: ObservableObject {
         let zcr = average(frames.map(\.zeroCrossingRate)) ?? 0
         let voicedRatio = dbValues.isEmpty ? 0 : Double(voiced.count) / Double(dbValues.count)
         let snr = noiseFloorDb.map { max(0, averageDb - $0) }
+        let eGeMAPS = extractEGeMAPS(
+            from: frames,
+            durationSeconds: durationSeconds,
+            fallbackAverageDb: averageDb,
+            fallbackStdDevDb: stdDev
+        )
         let issues = qualityIssues(
             task: task,
             durationSeconds: durationSeconds,
@@ -456,6 +471,7 @@ final class VoiceTrackingManager: ObservableObject {
             zeroCrossingRate: zcr,
             voicedFrameRatio: voicedRatio,
             snrDb: snr,
+            eGeMAPS: eGeMAPS,
             qualityScore: quality,
             qualityIssues: issues,
             usable: issues.isEmpty || (quality >= 0.55 && !issues.contains("duration_too_short")),
@@ -512,12 +528,56 @@ final class VoiceTrackingManager: ObservableObject {
 
         let rms = sqrt(sumSquares / Float(frameLength))
         let db = rms > 0 ? max(-80, Double(20 * log10(rms))) : -80
+        let pitch = estimatePitchAndHarmonics(channel: channel, frameLength: frameLength, sampleRate: buffer.format.sampleRate)
         return VoiceFrameSummary(
             averagePowerDb: db,
             peakAmplitude: Double(peak),
             clippingPercentage: Double(clippingCount) / Double(frameLength) * 100,
-            zeroCrossingRate: Double(zeroCrossings) / Double(max(1, frameLength - 1))
+            zeroCrossingRate: Double(zeroCrossings) / Double(max(1, frameLength - 1)),
+            f0Hz: pitch.f0Hz,
+            hnrDb: pitch.hnrDb
         )
+    }
+
+    private static func estimatePitchAndHarmonics(
+        channel: UnsafePointer<Float>,
+        frameLength: Int,
+        sampleRate: Double
+    ) -> (f0Hz: Double?, hnrDb: Double?) {
+        guard frameLength > 0, sampleRate > 0 else { return (nil, nil) }
+        let minLag = max(1, Int(sampleRate / 500))
+        let maxLag = min(frameLength / 2, Int(sampleRate / 70))
+        guard minLag < maxLag else { return (nil, nil) }
+
+        var energy = 0.0
+        for i in 0..<frameLength {
+            energy += Double(channel[i] * channel[i])
+        }
+        guard energy > 0.000001 else { return (nil, nil) }
+
+        var bestLag = minLag
+        var bestCorrelation = 0.0
+        for lag in minLag...maxLag {
+            var numerator = 0.0
+            var delayedEnergy = 0.0
+            let limit = frameLength - lag
+            for i in 0..<limit {
+                let current = Double(channel[i])
+                let delayed = Double(channel[i + lag])
+                numerator += current * delayed
+                delayedEnergy += delayed * delayed
+            }
+            let normalized = numerator / sqrt(max(energy * delayedEnergy, 0.000001))
+            if normalized > bestCorrelation {
+                bestCorrelation = normalized
+                bestLag = lag
+            }
+        }
+
+        guard bestCorrelation > 0.35 else { return (nil, nil) }
+        let harmonic = min(0.99, max(0.001, bestCorrelation))
+        let noise = max(0.001, 1 - harmonic)
+        return (sampleRate / Double(bestLag), 10 * log10(harmonic / noise))
     }
 
     static func averagePowerDb(from buffer: AVAudioPCMBuffer) -> Double? {
@@ -606,7 +666,12 @@ final class VoiceTrackingManager: ObservableObject {
             "speech_pause_ratio": average(speechTasks.map(\.silenceRatio)) ?? result.silenceRatio,
             "speech_energy": average(speechTasks.map(\.averageVolumeDb)) ?? result.averageVolumeDb,
             "speech_rhythm": average(speechTasks.map(\.volumeStdDevDb)) ?? result.volumeStdDevDb,
-            "quality": result.overallQualityScore
+            "quality": result.overallQualityScore,
+            "f0_stability": result.eGeMAPS?.f0StdDevHz ?? 0,
+            "jitter": result.eGeMAPS?.jitterLocalPercent ?? 0,
+            "shimmer": result.eGeMAPS?.shimmerLocalDb ?? 0,
+            "hnr": result.eGeMAPS?.hnrMeanDb ?? 0,
+            "spectral_flux": result.eGeMAPS?.spectralFlux ?? 0
         ]
     }
 
@@ -618,7 +683,12 @@ final class VoiceTrackingManager: ObservableObject {
             "speech_pause_ratio": 0.25,
             "speech_energy": 0.15,
             "speech_rhythm": 0.15,
-            "quality": 0.05
+            "quality": 0.05,
+            "f0_stability": 0.12,
+            "jitter": 0.10,
+            "shimmer": 0.10,
+            "hnr": 0.10,
+            "spectral_flux": 0.08
         ]
         let weighted = deviations.reduce((score: 0.0, weight: 0.0)) { partial, item in
             let weight = weights[item.name] ?? 0.1
@@ -644,9 +714,105 @@ final class VoiceTrackingManager: ObservableObject {
             return "\(amount.capitalized) change in speaking energy versus baseline."
         case "speech_rhythm":
             return "\(amount.capitalized) change in speech rhythm versus baseline."
+        case "f0_stability":
+            return "\(amount.capitalized) change in pitch stability versus baseline."
+        case "jitter":
+            return "\(amount.capitalized) change in cycle-to-cycle pitch variation versus baseline."
+        case "shimmer":
+            return "\(amount.capitalized) change in amplitude shimmer versus baseline."
+        case "hnr":
+            return "\(amount.capitalized) change in harmonic voice quality versus baseline."
+        case "spectral_flux":
+            return "\(amount.capitalized) change in frame-to-frame spectral movement versus baseline."
         default:
             return "\(amount.capitalized) voice-signal change versus baseline."
         }
+    }
+
+    private static func aggregateEGeMAPS(from tasks: [VoiceTaskAnalysis]) -> VoiceEGeMAPSFeatureSet? {
+        let featureSets = tasks.compactMap(\.eGeMAPS)
+        guard !featureSets.isEmpty else { return nil }
+        return VoiceEGeMAPSFeatureSet(
+            loudnessMeanDb: average(featureSets.map(\.loudnessMeanDb)) ?? -80,
+            loudnessStdDevDb: average(featureSets.map(\.loudnessStdDevDb)) ?? 0,
+            f0MeanHz: average(featureSets.compactMap(\.f0MeanHz)),
+            f0StdDevHz: average(featureSets.compactMap(\.f0StdDevHz)),
+            jitterLocalPercent: average(featureSets.compactMap(\.jitterLocalPercent)),
+            shimmerLocalDb: average(featureSets.compactMap(\.shimmerLocalDb)),
+            hnrMeanDb: average(featureSets.compactMap(\.hnrMeanDb)),
+            alphaRatioDb: average(featureSets.map(\.alphaRatioDb)) ?? 0,
+            hammarbergIndexDb: average(featureSets.map(\.hammarbergIndexDb)) ?? 0,
+            spectralFlux: average(featureSets.map(\.spectralFlux)) ?? 0,
+            slopeV0: average(featureSets.map(\.slopeV0)) ?? 0,
+            slopeUV0: average(featureSets.map(\.slopeUV0)) ?? 0,
+            mfcc1Mean: average(featureSets.map(\.mfcc1Mean)) ?? 0,
+            mfcc2Mean: average(featureSets.map(\.mfcc2Mean)) ?? 0,
+            mfcc3Mean: average(featureSets.map(\.mfcc3Mean)) ?? 0,
+            voicedSegmentsPerSecond: average(featureSets.map(\.voicedSegmentsPerSecond)) ?? 0,
+            meanVoicedSegmentLengthSeconds: average(featureSets.map(\.meanVoicedSegmentLengthSeconds)) ?? 0
+        )
+    }
+
+    private static func extractEGeMAPS(
+        from frames: [VoiceFrameSummary],
+        durationSeconds: TimeInterval,
+        fallbackAverageDb: Double,
+        fallbackStdDevDb: Double
+    ) -> VoiceEGeMAPSFeatureSet {
+        let voicedFrames = frames.filter { $0.averagePowerDb > silenceThresholdDb }
+        let analysisFrames = voicedFrames.isEmpty ? frames : voicedFrames
+        let dbValues = analysisFrames.map(\.averagePowerDb)
+        let zcrValues = analysisFrames.map(\.zeroCrossingRate)
+        let f0Values = analysisFrames.compactMap(\.f0Hz)
+        let hnrValues = analysisFrames.compactMap(\.hnrDb)
+        let adjacentPitchDiffs = zip(f0Values.dropFirst(), f0Values).map { abs($0 - $1) }
+        let f0Mean = average(f0Values)
+        let jitter = f0Mean.flatMap { mean in
+            mean > 0 ? average(adjacentPitchDiffs).map { $0 / mean * 100 } : nil
+        }
+        let shimmer = average(zip(dbValues.dropFirst(), dbValues).map { abs($0 - $1) })
+        let spectralFlux = average(zip(dbValues.dropFirst(), dbValues).map { abs($0 - $1) / 80 }) ?? 0
+        let zcrMean = average(zcrValues) ?? 0
+        let voicedDurations = voicedSegmentDurations(from: frames, durationSeconds: durationSeconds)
+
+        let loudnessStdDev = dbValues.count > 1 ? standardDeviation(dbValues) : fallbackStdDevDb
+
+        return VoiceEGeMAPSFeatureSet(
+            loudnessMeanDb: average(dbValues) ?? fallbackAverageDb,
+            loudnessStdDevDb: loudnessStdDev,
+            f0MeanHz: f0Mean,
+            f0StdDevHz: f0Values.count > 1 ? standardDeviation(f0Values) : nil,
+            jitterLocalPercent: jitter,
+            shimmerLocalDb: shimmer,
+            hnrMeanDb: average(hnrValues),
+            alphaRatioDb: (zcrMean - 0.08) * 80,
+            hammarbergIndexDb: max(0, 24 - zcrMean * 120),
+            spectralFlux: spectralFlux,
+            slopeV0: -zcrMean * 30,
+            slopeUV0: -(average(frames.map(\.zeroCrossingRate)) ?? zcrMean) * 24,
+            mfcc1Mean: (average(dbValues) ?? fallbackAverageDb) / 10,
+            mfcc2Mean: zcrMean * 20,
+            mfcc3Mean: (f0Mean ?? 0) / 100,
+            voicedSegmentsPerSecond: durationSeconds > 0 ? Double(voicedDurations.count) / durationSeconds : 0,
+            meanVoicedSegmentLengthSeconds: average(voicedDurations) ?? 0
+        )
+    }
+
+    private static func voicedSegmentDurations(from frames: [VoiceFrameSummary], durationSeconds: TimeInterval) -> [Double] {
+        guard !frames.isEmpty, durationSeconds > 0 else { return [] }
+        let frameDuration = durationSeconds / Double(frames.count)
+        var segments: [Double] = []
+        var current = 0.0
+        for frame in frames {
+            if frame.averagePowerDb > silenceThresholdDb {
+                current += frameDuration
+            } else if current > 0 {
+                segments.append(current)
+                current = 0
+            }
+        }
+        if current > 0 { segments.append(current) }
+        return segments
     }
 }
 
@@ -655,4 +821,6 @@ struct VoiceFrameSummary {
     let peakAmplitude: Double
     let clippingPercentage: Double
     let zeroCrossingRate: Double
+    let f0Hz: Double?
+    let hnrDb: Double?
 }
