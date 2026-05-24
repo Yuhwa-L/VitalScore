@@ -9,6 +9,7 @@ struct HealthDashboardView: View {
     @State private var showEyeFocusTest = false
     @State private var showVoiceTracking = false
     @State private var showAdvancedVoiceTracking = false
+    @State private var showAdvancedEyeOCT = false
     @State private var showVoiceAnalysis = false
     @State private var showWellnessHistory = false
     @State private var lastWellnessResult: WellnessDeltaResult?
@@ -30,6 +31,7 @@ struct HealthDashboardView: View {
                     healthMetricGrid
                     trackingActionsRow
                     analysisOverview
+                    advancedEyeFeature
                     advancedVoiceFeature
                 }
                 .padding()
@@ -102,6 +104,10 @@ struct HealthDashboardView: View {
                     onAnalysisRequested: prepareVoiceTrackingSessionForAIAnalysis,
                     onFinished: finishAdvancedVoiceTrackingFlow
                 )
+            }
+            .navigationDestination(isPresented: $showAdvancedEyeOCT) {
+                AdvancedEyeOCTBridgeView()
+                    .environmentObject(storage)
             }
             .navigationDestination(isPresented: $showVoiceAnalysis) {
                 VoiceAnalysisDashboardView(sessions: storage.loadVoiceSessions())
@@ -212,6 +218,34 @@ struct HealthDashboardView: View {
                     Text("Advanced Freestyle Talk")
                         .font(.subheadline.weight(.semibold))
                     Text("Optional AI-guided voice conversation for advanced users.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.secondarySystemBackground))
+            .cornerRadius(8)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var advancedEyeFeature: some View {
+        Button {
+            showAdvancedEyeOCT = true
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "eye.trianglebadge.exclamationmark")
+                    .font(.headline)
+                    .foregroundStyle(.indigo)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Advanced Eye + OCT")
+                        .font(.subheadline.weight(.semibold))
+                    Text("Research demo linking eye tracking with OCT/OCTA metrics.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
