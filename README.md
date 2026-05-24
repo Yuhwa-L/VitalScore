@@ -8,12 +8,13 @@ A SwiftUI wellness-tracking iOS app MVP that lets you pick a lifestyle experimen
 
 - **Onboarding** → mock **Health permission sheet** (iOS-style, no real HealthKit calls) → **Experiment selection** → **Dashboard**.
 - **Dashboard** with metric cards for Sleep, Resting Heart Rate, HRV, Steps, Active Energy, and a computed Wellness Delta. Pull-to-refresh and a toolbar ↻ refresh.
-- **Eye-Focus Test** — 30-second test that combines a reaction-time mini-game (tap when the dot turns red) with **live gaze tracking** from the front camera. Produces a blended `eyeFocusScore` plus separate reaction and gaze metrics.
+- **Eye-Focus Test** — 30-second test that combines a reaction-time mini-game (tap when the dot turns red) with **live gaze tracking** from the front camera. Produces a blended `eyeFocusScore`, separate reaction/gaze metrics, and an optional short AI summary.
 - **Face-position guide** before each test (`FaceGuideOverlay`) — dashed oval + live dot, with distance/centering checks (good range 0.22–0.40 m) that gate the **Begin Calibration** button until the user is framed correctly.
-- **5-point gaze calibration** runs immediately before every test — fixate center + four corners (`GazeCalibrator.targets`), and `CalibrationTransform.solve` fits a 2×3 affine map from raw gaze → screen via least-squares; the resulting transform is applied to every sample during the run.
+- **9-point gaze calibration** runs immediately before every test — fixate center, edges, and corners (`GazeCalibrator.targets`). `CalibrationTransform.solve` robustly fits an affine/quadratic map from raw gaze to screen coordinates; the resulting transform is applied to every sample during the run.
 - **Two gaze backends, auto-selected**: ARKit `lookAtPoint` on TrueDepth iPhones, Vision face-landmark detection on RGB cameras. Falls back to reaction-only if no camera is available.
-- **Per-test JSON log** of every gaze sample + aggregated metrics is written to the app's Documents folder.
-- **Insight report** generated after each eye-focus run by `WellnessScoreEngine`, comparing today's metrics to a rolling 7-day baseline.
+- **Per-test JSON log** of gaze samples + aggregated metrics is written to the app's Documents folder for debugging and re-analysis. The post-test user screen does not show raw JSON.
+- **OpenAI eye-focus summary** uses the Responses API to turn the computed result and downsampled log into short, non-medical section summaries with a confidence value. The app never asks the model to diagnose disease.
+- **Insight report** generated after each eye-focus run by `WellnessScoreEngine`, comparing today's metrics to a rolling 7-day baseline. After the result screen, tapping **Done** returns directly to the dashboard.
 - **Settings** screen (gear icon, top-left of dashboard): account info, change experiment, mock-data tools, about, **Reset App**.
 - **In-app debug helpers**: `Generate Random Data` button and seeded JSON dataset (`VitalScore/Resources/MockData/health_seed.json`).
 
@@ -39,14 +40,16 @@ VitalScore/
 │   │   ├── HealthDashboardView.swift
 │   │   └── WellnessScoreEngine.swift      # Baseline + weighted delta scoring (now includes gaze)
 │   ├── EyeFocus/
-│   │   ├── EyeFocusTestView.swift         # SwiftUI test UI: face-guide → calibration → countdown → run
+│   │   ├── EyeFocusTestView.swift         # SwiftUI test UI: face-guide → calibration → countdown → run → result
 │   │   ├── EyeFocusTestManager.swift      # Phase state machine (idle/ready/calibrating/countdown/running/finished) + backend selector + gaze buffer
 │   │   ├── GazeTrackingService.swift      # ARKit ARFaceAnchor → lookAtPoint → screen-normalized gaze
 │   │   ├── GazeARView.swift               # ARSCNView wrapper (TrueDepth iPhone only)
 │   │   ├── VisionGazeTrackingService.swift # AVFoundation + VNDetectFaceLandmarksRequest fallback
 │   │   ├── CameraPreviewView.swift        # AVCaptureVideoPreviewLayer SwiftUI wrapper
 │   │   ├── FaceGuideOverlay.swift         # Dashed oval + face dot + distance/centering status (good/yellow/red)
-│   │   └── GazeDataLogger.swift           # Per-test JSON log writer (Documents/GazeLogs/)
+│   │   ├── GazeDataLogger.swift           # Per-test JSON log writer (Documents/GazeLogs/)
+│   │   ├── EyeFocusLogsView.swift         # Developer/debug log browser + re-analysis
+│   │   └── OpenAIEyeFocusSummaryClient.swift # Responses API client + structured summary prompt/schema
 │   ├── Insight/
 │   │   └── InsightReportView.swift
 │   └── Settings/
@@ -56,9 +59,10 @@ VitalScore/
 │   │   ├── DailyHealthRecord.swift        # + gaze fields (accuracy, stability, blink rate, score)
 │   │   ├── BaselineMetrics.swift          # + averageGazeScore, averageGazeAccuracyPx
 │   │   ├── ExperimentTag.swift
-│   │   ├── EyeFocusTestResult.swift       # reactionScore + gazeMetrics? + blend()
+│   │   ├── EyeFocusTestResult.swift       # reactionScore + gazeMetrics? + aiSummary? + blend()
+│   │   ├── EyeFocusAISummary.swift        # Stored OpenAI summary + confidence + sections
 │   │   ├── GazeMetrics.swift              # Aggregated gaze metrics + GazeSample + GazeAggregator
-│   │   ├── GazeCalibration.swift          # CalibrationTransform (2×3 affine) + least-squares solve + 5-point target set
+│   │   ├── GazeCalibration.swift          # CalibrationTransform + robust affine/quadratic solve + 9-point target set
 │   │   └── WellnessDeltaResult.swift
 │   └── Storage/
 │       └── LocalStorageManager.swift      # UserDefaults-backed persistence
@@ -72,7 +76,7 @@ VitalScore/
     └── MockData/
         └── health_seed.json               # 7 days of mock metrics, loaded on launch
 
-VitalScoreTests/                           # XCTest suite (5 test files)
+VitalScoreTests/                           # XCTest suite (6 test files)
 project.yml                                # XcodeGen spec (Xcode project is generated)
 ```
 
@@ -134,6 +138,14 @@ Current feature confidence is intentionally conservative:
 - Proxy but not score weighted yet: F0 mean/std and HNR.
 - Unsupported until canonical comparison: jitter, shimmer, MFCC placeholders, alpha ratio, Hammarberg index, spectral slopes.
 
+When `.env` changes, regenerate the local config and rebuild/reinstall the app. The key is expanded into the app's `Info.plist` at build time; changing `.env` alone does not update an already-installed app.
+
+```bash
+./scripts/generate-local-config.sh
+xcodebuild -scheme VitalScore -configuration Debug -destination 'platform=iOS,id=<DEVICE_UDID>' build
+xcrun devicectl device install app --device <DEVICE_UDID> ~/Library/Developer/Xcode/DerivedData/VitalScore-*/Build/Products/Debug-iphoneos/VitalScore.app
+```
+
 ## Wellness score (current weights)
 
 `WellnessScoreEngine` weights five inputs against the rolling 7-day baseline:
@@ -163,20 +175,30 @@ Selection logic lives in `EyeFocusTestManager.swift` (`GazeBackend.detect()`). C
 ### Test flow (per run)
 
 ```
-idle  →  ready (face-guide oval green)  →  calibrating (5 points, ~2s each, collect from 0.7s)
+idle  →  ready (face-guide oval green)  →  calibrating (9 points, 2.2s each, collect from 0.7s)
                                                     │
                                                     ▼
-                                  CalibrationTransform.solve (least-squares affine)
+                              CalibrationTransform.solve (robust affine/quadratic)
                                                     │
                                                     ▼
-                                  countdown (3,2,1)  →  running (30s)  →  finished
+                       countdown (3,2,1)  →  running (30s)  →  processing  →  result
 ```
 
 `FaceGuideOverlay` reads the backend's face center + estimated distance and turns the oval green only when the user is within `goodDistanceRange` (0.22–0.40 m) and centered within ±0.20 of the frame; **Begin Calibration** is disabled until then.
 
+The result screen shows the numeric score, reaction/gaze metrics, and, when configured, short AI-generated section summaries. It does not show the raw JSON log. Tapping **Done** saves the result and returns to the dashboard.
+
 ### Calibration
 
-Five fixation targets — center + four off-corners at (0.15, 0.20), (0.85, 0.20), (0.85, 0.80), (0.15, 0.80) in normalized screen coords. For each target the manager waits 0.7 s for the user to fixate, then averages raw gaze for 1.3 s. `CalibrationTransform.solve` fits two 1×3 vectors `(mX, mY)` so that `[rawX, rawY, 1] · mX → targetX` (and same for Y), via normal-equations least squares. The fitted transform is applied to every gaze sample for the rest of the test; the mean residual norm is retained as a quality indicator.
+Nine fixation targets — center plus eight edge/corner points in normalized screen coordinates:
+
+```
+(0.50, 0.50), (0.15, 0.20), (0.50, 0.20), (0.85, 0.20),
+(0.85, 0.50), (0.85, 0.80), (0.50, 0.80), (0.15, 0.80),
+(0.15, 0.50)
+```
+
+For each target the manager waits 0.7 s for the user to fixate, then collects until 2.2 s. Calibration keeps stable, non-blink samples, uses a robust mean per target, and evaluates affine/quadratic candidates with a small complexity penalty. The selected transform is applied to every gaze sample for the rest of the test; mean residual, sample count, and baseline head pose are retained as quality indicators.
 
 ### Score blending
 
@@ -202,8 +224,8 @@ ARKit  ARFaceAnchor (~60 Hz)      Vision  VNDetectFaceLandmarksRequest (~15 Hz)
             CGPoint in normalized screen coords (0…1)
                                │
                                ▼
-          GazeSample { timestamp, gazePoint, targetPoint (= dot),
-                       leftBlink, rightBlink, trackingValid }
+            GazeSample { timestamp, rawGazePoint, gazePoint, targetPoint (= dot),
+                         blink values, trackingValid, motion/head-pose quality flags }
                                │
             buffered in EyeFocusTestManager during the 30s test
                                │
@@ -215,36 +237,39 @@ ARKit  ARFaceAnchor (~60 Hz)      Vision  VNDetectFaceLandmarksRequest (~15 Hz)
                           fixationDurationMs, blinkRatePerMin,
                           trackingLossPct, gazeScore, sampleCount }
                                │
-            ┌──────────────────┼───────────────────────┐
-            ▼                  ▼                       ▼
-     blend into            persist into          write JSON via
-     eyeFocusScore         DailyHealthRecord     GazeDataLogger
-                                                 (Documents/GazeLogs/)
+            ┌──────────────────┼───────────────────────┬──────────────────────┐
+            ▼                  ▼                       ▼                      ▼
+     blend into            persist into          write JSON via        summarize via
+     eyeFocusScore         DailyHealthRecord     GazeDataLogger        OpenAI Responses API
+                                                 (Documents/GazeLogs/) (optional)
 ```
 
-Each test writes one JSON file:
-```jsonc
+Each test writes one JSON file under `Documents/GazeLogs/`. Logs contain backend metadata, screen size, calibration summary, reaction summary, aggregate metrics, and per-frame gaze samples. Logs are for developer debugging and API re-analysis only; the normal post-test UI shows only short section summaries.
+
+The OpenAI request sends computed metrics plus a capped/downsampled log trace (`maxSamplesToSend = 400`) and requests strict JSON:
+
+```json
 {
-  "backend": "vision",
-  "startedAt": "2026-05-23T17:50:14Z",
-  "durationSeconds": 30,
-  "frameCount": 426,
-  "metrics": { "gazeAccuracyPx": 142.3, "gazeStabilityPx": 67.1, "fixationDurationMs": 318,
-               "blinkRatePerMin": 18, "trackingLossPct": 4.2, "gazeScore": 71.5, "sampleCount": 426 },
-  "samples": [ { "timestamp": 0.067, "gazeX": 195.2, "gazeY": 412.1, "targetX": 200, "targetY": 400,
-                 "leftBlink": 0.05, "rightBlink": 0.04, "trackingValid": true }, ... ]
+  "overall_summary": "Short user-facing summary.",
+  "confidence": "high | medium | low",
+  "sections": [
+    { "title": "Reaction", "summary": "One short sentence." },
+    { "title": "Gaze accuracy", "summary": "One short sentence." },
+    { "title": "Gaze stability", "summary": "One short sentence." },
+    { "title": "Tracking quality", "summary": "One short sentence." },
+    { "title": "Calibration", "summary": "One short sentence." },
+    { "title": "Practical note", "summary": "One short sentence." }
+  ]
 }
 ```
 
-Pull files off the iOS Simulator with:
-```bash
-xcrun simctl get_app_container booted com.vitalscore.app data
-# → cd that path / Documents / GazeLogs / gaze_*.json
-```
+The summary prompt is intentionally non-medical: it forbids diagnosis, treatment advice, raw JSON, raw samples, file paths, logs, code blocks, and technical dumps. If tracking quality is weak, the model should lower confidence and say to interpret the result cautiously.
 
 ## Running the eye-focus test
 
-The eye-focus test requires real front-camera frames, so it must run on a physical iPhone — the iOS Simulator cannot access the host Mac's camera via `AVCaptureDevice`. Build/run on a device (Xcode → select your iPhone as destination), then walk through Onboarding → Permission → Experiment → Dashboard → **Run Eye-Focus Test**. The idle screen shows the live front-camera feed with the face-guide oval; once it turns green tap **Begin Calibration**, fixate each of the five dots, then run the 30 s reaction test.
+The eye-focus test requires real front-camera frames, so it must run on a physical iPhone — the iOS Simulator cannot access the host Mac's camera via `AVCaptureDevice`. Build/run on a device (Xcode → select your iPhone as destination), then walk through Onboarding → Permission → Experiment → Dashboard → **Run Eye-Focus Test**. The idle screen shows the live front-camera feed with the face-guide oval; once it turns green tap **Begin Calibration**, fixate each of the nine dots, then run the 30 s reaction test.
+
+After processing, the app shows the eye-focus score, key metrics, and short AI summary sections if `VITALSCORE_OPENAI_API_KEY` was configured for the build. Tap **Done** to save and return directly to the dashboard.
 
 The rest of the app (dashboard, settings, mock data, score engine) runs fine in the simulator.
 
@@ -294,7 +319,7 @@ sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 
 ## Tests
 
-`VitalScoreTests/` covers the score engine, baseline calculations, eye-focus scoring, storage, and sleep parsing.
+`VitalScoreTests/` covers the score engine, baseline calculations, eye-focus scoring, eye-summary storage, voice scoring, and sleep parsing.
 
 ```bash
 xcodebuild -project VitalScore.xcodeproj -scheme VitalScore \
@@ -302,8 +327,6 @@ xcodebuild -project VitalScore.xcodeproj -scheme VitalScore \
 ```
 
 Or in Xcode: ⌘U.
-
-Current state: **28 / 29 tests pass.** The one failure (`WellnessScoreEngineTests.test_lowerRestingHeartRate_pushesScorePositive`) is from a pre-existing `Int()` truncation in `WellnessScoreEngine.calculate` — small positive deltas truncate to 0. Unrelated to the gaze pipeline; touch the engine if you want to fix it.
 
 ## Roadmap (out of scope for this MVP)
 
