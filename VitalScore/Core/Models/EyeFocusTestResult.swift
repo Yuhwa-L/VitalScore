@@ -8,6 +8,7 @@ struct EyeFocusTestResult: Codable, Equatable {
     let reactionScore: Double
     let gazeMetrics: GazeMetrics?
     let eyeFocusScore: Double
+    let aiSummary: EyeFocusAISummary?
     let completedAt: Date
 
     static let gazeBlendWeight = 0.6

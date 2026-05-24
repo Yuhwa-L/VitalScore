@@ -83,11 +83,13 @@ The `VitalScore.xcodeproj/` is generated and `.gitignore`d — regenerate with `
 Machine-specific signing and service URLs live in `.env`, which is intentionally ignored by git.
 
 1. Copy `.env.example` to `.env`.
-2. Set your Apple team, bundle identifiers, signing values, and URLs.
+2. Set your Apple team, bundle identifiers, signing values, URLs, and optional OpenAI values.
 3. Run `./scripts/generate-local-config.sh`.
 4. Run `xcodegen generate`.
 
 The generated `Config/Local.xcconfig` is also ignored. Xcode reads `Config/VitalScore.xcconfig`, which contains safe defaults and optionally includes `Config/Local.xcconfig` when present.
+
+For eye-focus AI summaries, set `VITALSCORE_OPENAI_API_KEY` in `.env`. `VITALSCORE_OPENAI_MODEL` defaults to `gpt-5-mini`.
 
 ## Wellness score (current weights)
 

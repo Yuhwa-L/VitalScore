@@ -6,6 +6,7 @@ final class LocalStorageManager: ObservableObject {
     static let onboardingKey = "com.vitalscore.onboardingComplete.v1"
     static let healthPermissionKey = "com.vitalscore.healthPermissionGranted.v1"
     static let voiceSessionsKey = "com.vitalscore.voiceSessions.v1"
+    static let eyeFocusSummariesKey = "com.vitalscore.eyeFocusSummaries.v1"
 
     private let defaults: UserDefaults
 
@@ -56,6 +57,36 @@ final class LocalStorageManager: ObservableObject {
         return loadVoiceSessions().filter { $0.date >= cutoff && $0.date < reference }
     }
 
+    func saveEyeFocusSummary(_ summary: EyeFocusAISummary) {
+        var existing = loadEyeFocusSummaries()
+        existing.removeAll { $0.id == summary.id || $0.sourceLogFileName == summary.sourceLogFileName }
+        existing.append(summary)
+        existing.sort { $0.generatedAt < $1.generatedAt }
+        if let data = try? JSONEncoder().encode(existing) {
+            defaults.set(data, forKey: Self.eyeFocusSummariesKey)
+        }
+    }
+
+    func loadEyeFocusSummaries() -> [EyeFocusAISummary] {
+        guard let data = defaults.data(forKey: Self.eyeFocusSummariesKey) else { return [] }
+        return (try? JSONDecoder().decode([EyeFocusAISummary].self, from: data)) ?? []
+    }
+
+    func latestEyeFocusSummary() -> EyeFocusAISummary? {
+        loadEyeFocusSummaries().sorted { $0.generatedAt < $1.generatedAt }.last
+    }
+
+    func removeEyeFocusSummaries(forFileNames names: Set<String>) {
+        guard !names.isEmpty else { return }
+        let remaining = loadEyeFocusSummaries().filter { summary in
+            guard let name = summary.sourceLogFileName else { return true }
+            return !names.contains(name)
+        }
+        if let data = try? JSONEncoder().encode(remaining) {
+            defaults.set(data, forKey: Self.eyeFocusSummariesKey)
+        }
+    }
+
     func saveSelectedExperiment(_ tag: ExperimentTag?, customLabel: String? = nil) {
         let payload = ExperimentSelectionPayload(tag: tag, customLabel: customLabel)
         if let data = try? JSONEncoder().encode(payload) {
@@ -88,6 +119,7 @@ final class LocalStorageManager: ObservableObject {
         defaults.removeObject(forKey: Self.onboardingKey)
         defaults.removeObject(forKey: Self.healthPermissionKey)
         defaults.removeObject(forKey: Self.voiceSessionsKey)
+        defaults.removeObject(forKey: Self.eyeFocusSummariesKey)
     }
 
     private struct ExperimentSelectionPayload: Codable {

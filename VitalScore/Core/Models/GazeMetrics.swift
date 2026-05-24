@@ -34,6 +34,7 @@ struct GazeSample {
     let rightBlink: Float
     let trackingValid: Bool
     let inSettlingWindow: Bool
+    let inMotionCooldown: Bool
     let motion: MotionSnapshot
     let headPose: HeadPoseSnapshot
     let headPositionDevM: Float
@@ -55,7 +56,7 @@ enum GazeAggregator {
         guard !samples.isEmpty else { return nil }
 
         let validSamples = samples.filter {
-            $0.trackingValid && !$0.isBlinking && !$0.inSettlingWindow && $0.motion.isStable
+            $0.trackingValid && !$0.isBlinking && !$0.inSettlingWindow && !$0.inMotionCooldown && $0.motion.isStable
         }
         guard !validSamples.isEmpty else {
             return GazeMetrics(
@@ -69,9 +70,10 @@ enum GazeAggregator {
             )
         }
 
-        let errors = validSamples.map { $0.euclideanErrorPx }
-        let meanError = errors.reduce(0, +) / Double(errors.count)
-        let variance = errors.map { pow($0 - meanError, 2) }.reduce(0, +) / Double(errors.count)
+        let errors = validSamples.map { $0.euclideanErrorPx }.sorted()
+        let coreErrors = trimmed(errors, keeping: 0.9)
+        let meanError = coreErrors.reduce(0, +) / Double(coreErrors.count)
+        let variance = coreErrors.map { pow($0 - meanError, 2) }.reduce(0, +) / Double(coreErrors.count)
         let stability = sqrt(variance)
 
         let trackingLossPct = (1.0 - Double(validSamples.count) / Double(samples.count)) * 100
@@ -95,6 +97,12 @@ enum GazeAggregator {
             gazeScore: score,
             sampleCount: samples.count
         )
+    }
+
+    private static func trimmed(_ values: [Double], keeping fraction: Double) -> [Double] {
+        guard !values.isEmpty else { return values }
+        let keepCount = max(1, min(values.count, Int(ceil(Double(values.count) * fraction))))
+        return Array(values.prefix(keepCount))
     }
 
     private static func blinkRatePerMinute(samples: [GazeSample], durationSeconds: TimeInterval) -> Double {
@@ -133,6 +141,11 @@ enum GazeAggregator {
                 fixationStart = sample.timestamp
                 anchorPoint = sample.gazePoint
             }
+        }
+
+        if let start = fixationStart, let last = samples.last {
+            let durationMs = (last.timestamp - start) * 1000
+            if durationMs > 80 { fixations.append(durationMs) }
         }
 
         guard !fixations.isEmpty else { return 0 }

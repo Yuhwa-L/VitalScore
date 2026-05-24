@@ -16,10 +16,20 @@ struct GazeLogSample: Codable {
     let rightBlink: Float
     let trackingValid: Bool
     let inSettlingWindow: Bool
+    let inMotionCooldown: Bool
     let motion: MotionSnapshot
     let headPose: HeadPoseSnapshot
     let headPositionDevM: Float
     let headAngularDevDeg: Float
+}
+
+struct ReactionLog: Codable {
+    let averageReactionMs: Double
+    let reactionStdDevMs: Double
+    let missedTargets: Int
+    let falseTaps: Int
+    let hitCount: Int
+    let reactionTimesMs: [Double]
 }
 
 struct GazeLogFile: Codable {
@@ -32,6 +42,7 @@ struct GazeLogFile: Codable {
     let screenHeightPx: Double
     let calibration: CalibrationSummary?
     let metrics: GazeMetrics?
+    let reaction: ReactionLog?
     let samples: [GazeLogSample]
 }
 
@@ -44,7 +55,8 @@ enum GazeDataLogger {
         testStartedAt: Date,
         durationSeconds: TimeInterval,
         calibration: CalibrationSummary?,
-        screenSize: CGSize
+        screenSize: CGSize,
+        reaction: ReactionLog? = nil
     ) -> URL? {
         let logEntries = samples.map { s in
             GazeLogSample(
@@ -59,6 +71,7 @@ enum GazeDataLogger {
                 rightBlink: s.rightBlink,
                 trackingValid: s.trackingValid,
                 inSettlingWindow: s.inSettlingWindow,
+                inMotionCooldown: s.inMotionCooldown,
                 motion: s.motion,
                 headPose: s.headPose,
                 headPositionDevM: s.headPositionDevM,
@@ -76,6 +89,7 @@ enum GazeDataLogger {
             screenHeightPx: Double(screenSize.height),
             calibration: calibration,
             metrics: metrics,
+            reaction: reaction,
             samples: logEntries
         )
 

@@ -24,6 +24,9 @@ final class VisionGazeTrackingService: NSObject, ObservableObject {
     @Published private(set) var framesReceived: Int = 0
     @Published private(set) var facesDetected: Int = 0
     @Published private(set) var lastError: String?
+    @Published private(set) var faceCenterInFrame: CGPoint = CGPoint(x: 0.5, y: 0.5)
+    @Published private(set) var faceAreaRatio: CGFloat = 0
+    @Published private(set) var faceQualityGood: Bool = false
 
     var onGazeUpdate: ((CGPoint, Float, Float, Bool) -> Void)?
 
@@ -47,10 +50,10 @@ final class VisionGazeTrackingService: NSObject, ObservableObject {
     }
 
     nonisolated static func pickCamera() -> AVCaptureDevice? {
-        if let cam = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front) {
+        if let cam = AVCaptureDevice.default(.builtInTrueDepthCamera, for: .video, position: .front) {
             return cam
         }
-        if let cam = AVCaptureDevice.default(.builtInTrueDepthCamera, for: .video, position: .front) {
+        if let cam = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front) {
             return cam
         }
         let discovery = AVCaptureDevice.DiscoverySession(
@@ -153,7 +156,11 @@ final class VisionGazeTrackingService: NSObject, ObservableObject {
         log.info("Discovered \(allDevices.count, privacy: .public) video device(s): \(allDevices.map { $0.localizedName }.joined(separator: ", "), privacy: .public)")
 
         session.beginConfiguration()
-        session.sessionPreset = .vga640x480
+        if session.canSetSessionPreset(.hd1280x720) {
+            session.sessionPreset = .hd1280x720
+        } else {
+            session.sessionPreset = .high
+        }
 
         guard let device = Self.pickCamera() else {
             session.commitConfiguration()
@@ -170,6 +177,8 @@ final class VisionGazeTrackingService: NSObject, ObservableObject {
             return
         }
         session.addInput(input)
+
+        configureFrameRate(for: device)
 
         let output = AVCaptureVideoDataOutput()
         output.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
@@ -195,6 +204,28 @@ final class VisionGazeTrackingService: NSObject, ObservableObject {
         session.commitConfiguration()
         log.info("Session configured")
     }
+
+    private func configureFrameRate(for device: AVCaptureDevice) {
+        do {
+            try device.lockForConfiguration()
+            defer { device.unlockForConfiguration() }
+
+            let targetFPS: Double = 30
+            let supported = device.activeFormat.videoSupportedFrameRateRanges.contains {
+                $0.minFrameRate <= targetFPS && targetFPS <= $0.maxFrameRate
+            }
+            if supported {
+                let duration = CMTime(value: 1, timescale: CMTimeScale(targetFPS))
+                device.activeVideoMinFrameDuration = duration
+                device.activeVideoMaxFrameDuration = duration
+            }
+            if device.isSubjectAreaChangeMonitoringEnabled == false {
+                device.isSubjectAreaChangeMonitoringEnabled = true
+            }
+        } catch {
+            log.error("Camera frame-rate configuration failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
 }
 
 extension VisionGazeTrackingService: AVCaptureVideoDataOutputSampleBufferDelegate {
@@ -217,7 +248,7 @@ extension VisionGazeTrackingService: AVCaptureVideoDataOutputSampleBufferDelegat
         }
 
         let faces = (landmarksRequest.results) ?? []
-        let face = faces.first
+        let face = Self.bestFace(from: faces)
         let faceCount = faces.count
 
         Task { @MainActor [weak self] in
@@ -230,18 +261,25 @@ extension VisionGazeTrackingService: AVCaptureVideoDataOutputSampleBufferDelegat
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.isTracking = false
+                self.faceAreaRatio = 0
+                self.faceQualityGood = false
                 self.onGazeUpdate?(self.latestGazePoint ?? CGPoint(x: 0.5, y: 0.5), 0, 0, false)
             }
             return
         }
 
         let result = Self.processFace(face)
+        let faceCenter = CGPoint(x: face.boundingBox.midX, y: 1 - face.boundingBox.midY)
+        let faceArea = face.boundingBox.width * face.boundingBox.height
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.latestGazePoint = result.gazePoint
             self.leftEyeBlink = result.leftBlink
             self.rightEyeBlink = result.rightBlink
             self.isTracking = result.valid
+            self.faceCenterInFrame = faceCenter
+            self.faceAreaRatio = faceArea
+            self.faceQualityGood = result.valid
             self.onGazeUpdate?(result.gazePoint, result.leftBlink, result.rightBlink, result.valid)
         }
     }
@@ -269,8 +307,8 @@ extension VisionGazeTrackingService: AVCaptureVideoDataOutputSampleBufferDelegat
             leftRel = pupilRelativeInEye(pupil: leftPupil, eye: leftEye)
             rightRel = pupilRelativeInEye(pupil: rightPupil, eye: rightEye)
         } else {
-            leftRel = centerOfPoints(leftEye.normalizedPoints, withinSelf: true)
-            rightRel = centerOfPoints(rightEye.normalizedPoints, withinSelf: true)
+            leftRel = CGPoint(x: 0.5, y: 0.5)
+            rightRel = CGPoint(x: 0.5, y: 0.5)
         }
 
         let avgX = (leftRel.x + rightRel.x) / 2
@@ -291,8 +329,32 @@ extension VisionGazeTrackingService: AVCaptureVideoDataOutputSampleBufferDelegat
             gazePoint: CGPoint(x: screenX, y: screenY),
             leftBlink: leftBlink,
             rightBlink: rightBlink,
-            valid: true
+            valid: faceQualityIsUsable(face)
         )
+    }
+
+    nonisolated static func bestFace(from faces: [VNFaceObservation]) -> VNFaceObservation? {
+        faces.max { lhs, rhs in
+            faceSelectionScore(lhs) < faceSelectionScore(rhs)
+        }
+    }
+
+    nonisolated static func faceSelectionScore(_ face: VNFaceObservation) -> CGFloat {
+        let bounds = face.boundingBox
+        let center = CGPoint(x: bounds.midX, y: bounds.midY)
+        let centerPenalty = hypot(center.x - 0.5, center.y - 0.5)
+        let area = bounds.width * bounds.height
+        return area * 4 - centerPenalty + CGFloat(face.confidence) * 0.2
+    }
+
+    nonisolated private static func faceQualityIsUsable(_ face: VNFaceObservation) -> Bool {
+        let bounds = face.boundingBox
+        let center = CGPoint(x: bounds.midX, y: bounds.midY)
+        let centerOffset = hypot(center.x - 0.5, center.y - 0.5)
+        let area = bounds.width * bounds.height
+        return face.confidence >= 0.35
+            && area >= 0.035
+            && centerOffset <= 0.42
     }
 
     nonisolated private static func pupilRelativeInEye(pupil: VNFaceLandmarkRegion2D, eye: VNFaceLandmarkRegion2D) -> CGPoint {
@@ -309,13 +371,6 @@ extension VisionGazeTrackingService: AVCaptureVideoDataOutputSampleBufferDelegat
         let relX = (pupilPoint.x - minX) / width
         let relY = (pupilPoint.y - minY) / height
         return CGPoint(x: CGFloat(relX), y: CGFloat(relY))
-    }
-
-    nonisolated private static func centerOfPoints(_ points: [CGPoint], withinSelf: Bool) -> CGPoint {
-        guard !points.isEmpty else { return CGPoint(x: 0.5, y: 0.5) }
-        let avgX = points.map { $0.x }.reduce(0, +) / CGFloat(points.count)
-        let avgY = points.map { $0.y }.reduce(0, +) / CGFloat(points.count)
-        return CGPoint(x: avgX, y: avgY)
     }
 
     nonisolated private static func eyeAspectRatio(_ eye: VNFaceLandmarkRegion2D) -> CGFloat {

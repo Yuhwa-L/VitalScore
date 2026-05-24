@@ -9,7 +9,10 @@ struct EyeRaySnapshot: Equatable {
     let lookAtCamera: SIMD3<Float>
     let leftHitNormalized: CGPoint
     let rightHitNormalized: CGPoint
+    let lookAtNormalized: CGPoint
+    let eyeTransformNormalized: CGPoint
     let combinedNormalized: CGPoint
+    let rayDisagreement: CGFloat
 
     static let zero = EyeRaySnapshot(
         leftEyeCamera: .zero,
@@ -17,7 +20,10 @@ struct EyeRaySnapshot: Equatable {
         lookAtCamera: .zero,
         leftHitNormalized: CGPoint(x: 0.5, y: 0.5),
         rightHitNormalized: CGPoint(x: 0.5, y: 0.5),
-        combinedNormalized: CGPoint(x: 0.5, y: 0.5)
+        lookAtNormalized: CGPoint(x: 0.5, y: 0.5),
+        eyeTransformNormalized: CGPoint(x: 0.5, y: 0.5),
+        combinedNormalized: CGPoint(x: 0.5, y: 0.5),
+        rayDisagreement: 0
     )
 }
 
@@ -74,6 +80,16 @@ final class GazeTrackingService: NSObject, ObservableObject {
         return CGPoint(x: CGFloat(normX), y: CGFloat(normY))
     }
 
+    static func isPlausibleScreenPoint(_ point: CGPoint) -> Bool {
+        point.x.isFinite && point.y.isFinite
+            && point.x > -0.75 && point.x < 1.75
+            && point.y > -0.75 && point.y < 1.75
+    }
+
+    static func normalizedDistance(_ first: CGPoint, _ second: CGPoint) -> CGFloat {
+        hypot(first.x - second.x, first.y - second.y)
+    }
+
     private func gazeRays(
         faceAnchor: ARFaceAnchor,
         cameraTransform: simd_float4x4
@@ -96,14 +112,21 @@ final class GazeTrackingService: NSObject, ObservableObject {
         let leftHitM = Self.rayPlaneIntersect(origin: leftEyeCamera, target: lookAtCamera)
         let rightHitM = Self.rayPlaneIntersect(origin: rightEyeCamera, target: lookAtCamera)
         let avgHitM = SIMD2((leftHitM.x + rightHitM.x) / 2, (leftHitM.y + rightHitM.y) / 2)
+        let lookAtNormalized = Self.metersToNormalizedScreen(avgHitM)
+
+        let leftHitNormalized = Self.metersToNormalizedScreen(leftHitM)
+        let rightHitNormalized = Self.metersToNormalizedScreen(rightHitM)
 
         return EyeRaySnapshot(
             leftEyeCamera: leftEyeCamera,
             rightEyeCamera: rightEyeCamera,
             lookAtCamera: lookAtCamera,
-            leftHitNormalized: Self.metersToNormalizedScreen(leftHitM),
-            rightHitNormalized: Self.metersToNormalizedScreen(rightHitM),
-            combinedNormalized: Self.metersToNormalizedScreen(avgHitM)
+            leftHitNormalized: leftHitNormalized,
+            rightHitNormalized: rightHitNormalized,
+            lookAtNormalized: lookAtNormalized,
+            eyeTransformNormalized: lookAtNormalized,
+            combinedNormalized: lookAtNormalized,
+            rayDisagreement: Self.normalizedDistance(leftHitNormalized, rightHitNormalized)
         )
     }
 }
@@ -161,8 +184,10 @@ extension GazeTrackingService: ARSessionDelegate {
         latestGazePoint = normalizedPoint
         leftEyeBlink = leftBlink
         rightEyeBlink = rightBlink
-        isTracking = faceAnchor.isTracked
+        let isPlausible = Self.isPlausibleScreenPoint(normalizedPoint)
+        let valid = faceAnchor.isTracked && isPlausible
+        isTracking = valid
 
-        onGazeUpdate?(normalizedPoint, leftBlink, rightBlink, faceAnchor.isTracked)
+        onGazeUpdate?(normalizedPoint, leftBlink, rightBlink, valid)
     }
 }

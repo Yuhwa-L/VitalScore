@@ -24,6 +24,10 @@
 	<string>$(VITALSCORE_PRIVACY_POLICY_URL)</string>
 	<key>VitalScoreTermsURL</key>
 	<string>$(VITALSCORE_TERMS_URL)</string>
+	<key>VitalScoreOpenAIAPIKey</key>
+	<string>$(VITALSCORE_OPENAI_API_KEY)</string>
+	<key>VitalScoreOpenAIModel</key>
+	<string>$(VITALSCORE_OPENAI_MODEL)</string>
 	<key>NSCameraUsageDescription</key>
 	<string>VitalScore uses the camera only for the optional eye-focus test. The test is for wellness trends and is not a medical diagnosis.</string>
 	<key>NSHealthShareUsageDescription</key>

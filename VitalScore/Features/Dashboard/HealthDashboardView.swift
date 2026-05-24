@@ -12,6 +12,7 @@ struct HealthDashboardView: View {
     @State private var showWellnessHistory = false
     @State private var lastWellnessResult: WellnessDeltaResult?
     @State private var showSettings = false
+    @State private var showEyeFocusLogs = false
 
     private let engine = WellnessScoreEngine()
     private let healthColumns = [
@@ -66,6 +67,10 @@ struct HealthDashboardView: View {
             }
             .sheet(isPresented: $showSettings) {
                 SettingsView()
+            }
+            .sheet(isPresented: $showEyeFocusLogs) {
+                EyeFocusLogsView()
+                    .environmentObject(storage)
             }
             .sheet(isPresented: $showWellnessHistory) {
                 NavigationStack {
@@ -167,7 +172,7 @@ struct HealthDashboardView: View {
                 primaryValue: format(todayRecord?.eyeFocusScore, digits: 0) ?? "--",
                 primaryUnit: "score",
                 details: eyeAnalysisDetails,
-                action: { showWellnessHistory = true }
+                action: { showEyeFocusLogs = true }
             )
 
             AnalysisTile(
@@ -259,7 +264,8 @@ struct HealthDashboardView: View {
         let record = todayRecord
         return [
             detailText("Gaze", value: format(record?.gazeScore, digits: 0), unit: ""),
-            detailText("Reaction", value: format(record?.averageReactionMs, digits: 0), unit: "ms")
+            storage.latestEyeFocusSummary()?.overallSummary
+                ?? detailText("Reaction", value: format(record?.averageReactionMs, digits: 0), unit: "ms")
         ]
     }
 
@@ -326,6 +332,10 @@ struct HealthDashboardView: View {
     }
 
     private func handleEyeFocusFinished(_ result: EyeFocusTestResult) {
+        if let summary = result.aiSummary {
+            storage.saveEyeFocusSummary(summary)
+        }
+
         let baselineNow = baseline
         let existingRecord = todayRecord
         let todayRecord = DailyHealthRecord(
@@ -364,7 +374,7 @@ struct HealthDashboardView: View {
         )
         saveRecordWithWellness(todayRecord, baseline: baselineNow)
         showEyeFocusTest = false
-        showWellnessHistory = true
+        showWellnessHistory = false
     }
 
     private func handleVoiceTrackingFinished(_ session: VoiceTrackingSession) {

@@ -3,28 +3,31 @@ import UIKit
 
 struct EyeFocusTestView: View {
     @StateObject private var manager = EyeFocusTestManager()
+    @State private var didDeliverResult = false
     @Environment(\.dismiss) private var dismiss
     let onFinished: (EyeFocusTestResult) -> Void
 
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                Color.black.ignoresSafeArea()
+                if showResultBackground {
+                    Color.white.ignoresSafeArea()
+                } else {
+                    Color.black.ignoresSafeArea()
 
-                // ARKit background (real iPhone with TrueDepth)
-                if case .arkit = manager.gazeBackend, let arkit = manager.arkitService {
-                    GazeARView(service: arkit)
-                        .ignoresSafeArea()
-                        .allowsHitTesting(false)
-                    Color.black.opacity(arkitDimming).ignoresSafeArea()
-                }
+                    if case .arkit = manager.gazeBackend, let arkit = manager.arkitService {
+                        GazeARView(service: arkit)
+                            .ignoresSafeArea()
+                            .allowsHitTesting(false)
+                        Color.black.opacity(arkitDimming).ignoresSafeArea()
+                    }
 
-                // Vision background (non-TrueDepth iPhone fallback)
-                if case .vision = manager.gazeBackend, let vision = manager.visionService {
-                    CameraPreviewView(session: vision.session)
-                        .ignoresSafeArea()
-                        .allowsHitTesting(false)
-                    Color.black.opacity(manager.phase == .idle ? 0.4 : 0.55).ignoresSafeArea()
+                    if case .vision = manager.gazeBackend, let vision = manager.visionService {
+                        CameraPreviewView(session: vision.session)
+                            .ignoresSafeArea()
+                            .allowsHitTesting(false)
+                        Color.black.opacity(manager.phase == .idle ? 0.4 : 0.55).ignoresSafeArea()
+                    }
                 }
 
                 content(in: geo.size)
@@ -39,16 +42,18 @@ struct EyeFocusTestView: View {
         .navigationBarBackButtonHidden(true)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button("Cancel") {
-                    manager.cancel()
-                    dismiss()
+                if case .finished(let result) = manager.phase {
+                    Button("Done") {
+                        complete(result)
+                    }
+                    .foregroundColor(.black)
+                } else {
+                    Button("Cancel") {
+                        manager.cancel()
+                        dismiss()
+                    }
+                    .foregroundColor(.white)
                 }
-                .foregroundColor(.white)
-            }
-        }
-        .onChange(of: manager.phase) { _, newPhase in
-            if case .finished(let result) = newPhase {
-                onFinished(result)
             }
         }
     }
@@ -86,17 +91,16 @@ struct EyeFocusTestView: View {
         VStack(spacing: 18) {
             ProgressView()
                 .scaleEffect(1.8)
-                .tint(.white)
+                .tint(.black)
             Text("Processing your results…")
                 .font(.headline)
-                .foregroundColor(.white)
-            Text("Aggregating gaze samples and saving log")
+                .foregroundColor(.black)
+            Text("Aggregating gaze samples, saving log, and preparing summary")
                 .font(.caption)
-                .foregroundColor(.white.opacity(0.7))
+                .foregroundColor(.black.opacity(0.6))
+                .multilineTextAlignment(.center)
         }
         .padding(28)
-        .background(Color.black.opacity(0.5))
-        .cornerRadius(16)
     }
 
     @ViewBuilder
@@ -110,6 +114,13 @@ struct EyeFocusTestView: View {
                     containerSize: size
                 )
                 .allowsHitTesting(false)
+            }
+            if case .vision = manager.gazeBackend, let vision = manager.visionService {
+                VStack {
+                    visionStatusBadge(vision: vision)
+                        .padding(.top, 28)
+                    Spacer()
+                }
             }
 
             VStack(spacing: 14) {
@@ -134,14 +145,21 @@ struct EyeFocusTestView: View {
     }
 
     private var beginCalibrationEnabled: Bool {
-        guard case .arkit = manager.gazeBackend, let arkit = manager.arkitService else { return true }
-        let status = FaceGuideOverlay(
-            isTracked: arkit.isTracking,
-            faceCenterInFrame: arkit.faceCenterInFrame,
-            faceDistanceM: arkit.faceDistanceM,
-            containerSize: CGSize(width: 1, height: 1)
-        ).status
-        return status == .good
+        switch manager.gazeBackend {
+        case .arkit:
+            guard let arkit = manager.arkitService else { return false }
+            let status = FaceGuideOverlay(
+                isTracked: arkit.isTracking,
+                faceCenterInFrame: arkit.faceCenterInFrame,
+                faceDistanceM: arkit.faceDistanceM,
+                containerSize: CGSize(width: 1, height: 1)
+            ).status
+            return status == .good
+        case .vision:
+            return manager.visionService?.faceQualityGood == true
+        case .none:
+            return true
+        }
     }
 
     private var beginCalibrationLabel: String {
@@ -198,6 +216,9 @@ struct EyeFocusTestView: View {
             VStack(spacing: 4) {
                 Text("Calibration  •  Point \(pointIndex + 1) of \(manager.calibrationTargetCount)")
                     .font(.caption).foregroundColor(.white.opacity(0.8))
+                Text(calibrationInstruction)
+                    .font(.caption2)
+                    .foregroundColor(.white.opacity(0.65))
             }
             .padding(.horizontal, 10).padding(.vertical, 4)
             .background(Color.black.opacity(0.55))
@@ -288,7 +309,7 @@ struct EyeFocusTestView: View {
             }
 
             Circle()
-                .fill(manager.dotIsTarget ? Color.red : Color.white)
+                .fill(manager.dotHitFlash ? Color.green : Color.red)
                 .frame(width: 44, height: 44)
                 .position(x: manager.dotPosition.x * size.width, y: manager.dotPosition.y * size.height)
                 .allowsHitTesting(false)
@@ -311,10 +332,10 @@ struct EyeFocusTestView: View {
             VStack(spacing: 16) {
                 Text("Eye-Focus Score")
                     .font(.headline)
-                    .foregroundColor(.white.opacity(0.8))
+                    .foregroundColor(.secondary)
                 Text("\(Int(result.eyeFocusScore))")
                     .font(.system(size: 72, weight: .bold))
-                    .foregroundColor(.white)
+                    .foregroundColor(.primary)
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Reaction-time score: \(Int(result.reactionScore))")
                     Text("Average reaction: \(Int(result.averageReactionMs)) ms")
@@ -322,7 +343,7 @@ struct EyeFocusTestView: View {
                     Text("Missed targets: \(result.missedTargets)")
                     Text("False taps: \(result.falseTaps)")
                     if let g = result.gazeMetrics {
-                        Divider().background(Color.white.opacity(0.2))
+                        Divider()
                         Text("Gaze score: \(Int(g.gazeScore))")
                         Text("Gaze accuracy: \(Int(g.gazeAccuracyPx)) px")
                         Text("Gaze stability: \(Int(g.gazeStabilityPx)) px")
@@ -332,30 +353,82 @@ struct EyeFocusTestView: View {
                     }
                 }
                 .font(.caption)
-                .foregroundColor(.white.opacity(0.85))
+                .foregroundColor(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal)
 
-                if let url = manager.lastSavedLogURL {
-                    Divider().background(Color.white.opacity(0.2))
-                    VStack(alignment: .leading, spacing: 4) {
-                        Label("Gaze log saved", systemImage: "doc.text")
+                if let summary = result.aiSummary {
+                    Divider()
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("AI summary", systemImage: "sparkles")
                             .font(.caption)
-                            .foregroundColor(.green)
-                        Text(url.lastPathComponent)
+                            .foregroundColor(.indigo)
+                        Text("Model: \(summary.model)")
                             .font(.caption2.monospaced())
-                            .foregroundColor(.white.opacity(0.7))
-                        Text(url.path)
-                            .font(.caption2.monospaced())
-                            .foregroundColor(.white.opacity(0.5))
-                            .lineLimit(3)
+                            .foregroundColor(.secondary)
+                        Text(shortSummary(summary.overallSummary, maxCharacters: 260))
+                            .font(.caption)
+                            .foregroundColor(.primary)
+                        ForEach(summary.sections) { section in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(section.title)
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundColor(.primary)
+                                Text(shortSummary(section.summary, maxCharacters: 180))
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal)
+                } else if let error = manager.aiSummaryError {
+                    Divider()
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("AI summary unavailable", systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                        Text(error)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal)
                 }
+
+                Button {
+                    complete(result)
+                } label: {
+                    Text("Done")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color.black)
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
+                }
+                .padding(.horizontal)
             }
             .padding(.vertical)
         }
+    }
+
+    private func complete(_ result: EyeFocusTestResult) {
+        guard !didDeliverResult else { return }
+        didDeliverResult = true
+        onFinished(result)
+    }
+
+    private func shortSummary(_ text: String, maxCharacters: Int) -> String {
+        let normalized = text
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\t", with: " ")
+            .split(separator: " ")
+            .joined(separator: " ")
+
+        guard normalized.count > maxCharacters else { return normalized }
+        let end = normalized.index(normalized.startIndex, offsetBy: maxCharacters)
+        return String(normalized[..<end]).trimmingCharacters(in: .whitespacesAndNewlines) + "..."
     }
 
     private var startButtonLabel: String {
@@ -409,7 +482,7 @@ struct EyeFocusTestView: View {
     @ViewBuilder
     private func visionStatusBadge(vision: VisionGazeTrackingService) -> some View {
         VStack(spacing: 2) {
-            Text("frames \(vision.framesReceived) · faces \(vision.facesDetected) · tracking \(vision.isTracking ? "yes" : "no")")
+            Text("frames \(vision.framesReceived) · faces \(vision.facesDetected) · face \(vision.faceQualityGood ? "ok" : "adjust") · tracking \(vision.isTracking ? "yes" : "no")")
                 .font(.caption2.monospaced())
                 .foregroundColor(.white)
             if let err = vision.lastError {
@@ -426,11 +499,24 @@ struct EyeFocusTestView: View {
     private var idleInstruction: String {
         switch manager.gazeBackend {
         case .arkit:
-            return "Three steps: (1) position your face in the oval, (2) calibration — look at 5 dots, (3) the 30-second test — follow the dot with your eyes and tap when it turns red."
+            return "Three steps: (1) position your face in the oval, (2) calibration — look at 9 dots while keeping the phone still, (3) the 30-second test — follow the dot with your eyes and tap when it turns red."
         case .vision:
-            return "Three steps: (1) position your face, (2) calibration — look at 5 dots, (3) the 30-second test — follow the dot with your eyes and tap when it turns red. Keep your head fairly still throughout."
+            return "Three steps: (1) position your face, (2) calibration — look at 9 dots, (3) the 30-second test — follow the dot with your eyes and tap when it turns red. Keep your head fairly still throughout."
         case .none:
             return "Follow the dot with your eyes. Tap only when the dot turns red. The test runs for 30 seconds."
+        }
+    }
+
+    private var calibrationInstruction: String {
+        switch manager.gazeBackend {
+        case .arkit:
+            return manager.calibrationIsCollecting
+                ? "Keep eyes on dot. Keep phone still."
+                : "Hold gaze on dot."
+        case .vision:
+            return "Keep eyes on dot and phone still."
+        case .none:
+            return ""
         }
     }
 
@@ -439,6 +525,13 @@ struct EyeFocusTestView: View {
         case .arkit: return "eye.trianglebadge.exclamationmark"
         case .vision: return "camera.viewfinder"
         case .none: return "eye.slash"
+        }
+    }
+
+    private var showResultBackground: Bool {
+        switch manager.phase {
+        case .processing, .finished: return true
+        default: return false
         }
     }
 

@@ -30,7 +30,9 @@ while IFS= read -r line || [ -n "$line" ]; do
         VITALSCORE_PROVISIONING_PROFILE_SPECIFIER|\
         VITALSCORE_API_BASE_URL|\
         VITALSCORE_PRIVACY_POLICY_URL|\
-        VITALSCORE_TERMS_URL)
+        VITALSCORE_TERMS_URL|\
+        VITALSCORE_OPENAI_API_KEY|\
+        VITALSCORE_OPENAI_MODEL)
             value=$(printf "%s" "$value" | sed 's#://#:/\$()/#g')
             printf "%s = %s\n" "$key" "$value" >> "$output_file"
             ;;
