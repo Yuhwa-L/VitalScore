@@ -1,30 +1,217 @@
 import Foundation
 import CoreGraphics
 
+struct CalibrationInput: Codable, Equatable {
+    let rawX: Double
+    let rawY: Double
+    let headPositionX: Double
+    let headPositionY: Double
+    let headPositionZ: Double
+    let headYawDeg: Double
+    let headPitchDeg: Double
+    let headRollDeg: Double
+    let gravityX: Double
+    let gravityY: Double
+    let gravityZ: Double
+
+    var rawPoint: CGPoint {
+        CGPoint(x: rawX, y: rawY)
+    }
+
+    init(
+        rawGaze: CGPoint,
+        headPose: HeadPoseSnapshot = .zero,
+        motion: MotionSnapshot = .zero
+    ) {
+        self.rawX = Double(rawGaze.x)
+        self.rawY = Double(rawGaze.y)
+        self.headPositionX = Double(headPose.positionX)
+        self.headPositionY = Double(headPose.positionY)
+        self.headPositionZ = Double(headPose.positionZ)
+        self.headYawDeg = Double(headPose.yawDeg)
+        self.headPitchDeg = Double(headPose.pitchDeg)
+        self.headRollDeg = Double(headPose.rollDeg)
+        self.gravityX = motion.gravityX
+        self.gravityY = motion.gravityY
+        self.gravityZ = motion.gravityZ
+    }
+
+    init(
+        rawX: Double,
+        rawY: Double,
+        headPositionX: Double,
+        headPositionY: Double,
+        headPositionZ: Double,
+        headYawDeg: Double,
+        headPitchDeg: Double,
+        headRollDeg: Double,
+        gravityX: Double,
+        gravityY: Double,
+        gravityZ: Double
+    ) {
+        self.rawX = rawX
+        self.rawY = rawY
+        self.headPositionX = headPositionX
+        self.headPositionY = headPositionY
+        self.headPositionZ = headPositionZ
+        self.headYawDeg = headYawDeg
+        self.headPitchDeg = headPitchDeg
+        self.headRollDeg = headRollDeg
+        self.gravityX = gravityX
+        self.gravityY = gravityY
+        self.gravityZ = gravityZ
+    }
+
+    static let neutral = CalibrationInput(rawGaze: CGPoint(x: 0.5, y: 0.5))
+}
+
+struct CalibrationSample: Codable, Equatable {
+    let targetX: Double
+    let targetY: Double
+    let input: CalibrationInput
+
+    var targetPoint: CGPoint {
+        CGPoint(x: targetX, y: targetY)
+    }
+
+    init(targetPoint: CGPoint, input: CalibrationInput) {
+        self.targetX = Double(targetPoint.x)
+        self.targetY = Double(targetPoint.y)
+        self.input = input
+    }
+}
+
 struct CalibrationTransform: Codable, Equatable {
-    enum Kind: String, Codable { case affine, quadratic }
+    enum Kind: String, Codable { case affine, quadratic, poseAware }
 
     let kind: Kind
     let xCoeffs: [Double]
     let yCoeffs: [Double]
+    let featureMeans: [Double]
+    let featureScales: [Double]
 
     static let identity = CalibrationTransform(
         kind: .affine,
         xCoeffs: [0, 1, 0],
-        yCoeffs: [0, 0, 1]
+        yCoeffs: [0, 0, 1],
+        featureMeans: [],
+        featureScales: []
     )
 
+    init(
+        kind: Kind,
+        xCoeffs: [Double],
+        yCoeffs: [Double],
+        featureMeans: [Double] = [],
+        featureScales: [Double] = []
+    ) {
+        self.kind = kind
+        self.xCoeffs = xCoeffs
+        self.yCoeffs = yCoeffs
+        self.featureMeans = featureMeans
+        self.featureScales = featureScales
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case xCoeffs
+        case yCoeffs
+        case featureMeans
+        case featureScales
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try container.decode(Kind.self, forKey: .kind)
+        xCoeffs = try container.decode([Double].self, forKey: .xCoeffs)
+        yCoeffs = try container.decode([Double].self, forKey: .yCoeffs)
+        featureMeans = try container.decodeIfPresent([Double].self, forKey: .featureMeans) ?? []
+        featureScales = try container.decodeIfPresent([Double].self, forKey: .featureScales) ?? []
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(kind, forKey: .kind)
+        try container.encode(xCoeffs, forKey: .xCoeffs)
+        try container.encode(yCoeffs, forKey: .yCoeffs)
+        if !featureMeans.isEmpty {
+            try container.encode(featureMeans, forKey: .featureMeans)
+        }
+        if !featureScales.isEmpty {
+            try container.encode(featureScales, forKey: .featureScales)
+        }
+    }
+
     static func basis(for point: CGPoint, kind: Kind) -> [Double] {
-        let x = Double(point.x)
-        let y = Double(point.y)
+        basis(for: CalibrationInput(rawGaze: point), kind: kind, featureMeans: [], featureScales: [])
+    }
+
+    static func basis(
+        for input: CalibrationInput,
+        kind: Kind,
+        featureMeans: [Double],
+        featureScales: [Double]
+    ) -> [Double] {
+        let values = featureValues(for: input, kind: kind)
+        let normalized = normalize(values, means: featureMeans, scales: featureScales)
+        return [1] + normalized
+    }
+
+    static func featureValues(for input: CalibrationInput, kind: Kind) -> [Double] {
+        let x = input.rawX
+        let y = input.rawY
         switch kind {
-        case .affine:    return [1, x, y]
-        case .quadratic: return [1, x, y, x * x, x * y, y * y]
+        case .affine:
+            return [x, y]
+        case .quadratic:
+            return [x, y, x * x, x * y, y * y]
+        case .poseAware:
+            return [
+                x,
+                y,
+                x * x,
+                x * y,
+                y * y,
+                input.headPositionX,
+                input.headPositionY,
+                input.headPositionZ,
+                input.headYawDeg,
+                input.headPitchDeg,
+                input.headRollDeg,
+                input.gravityX,
+                input.gravityY,
+                input.gravityZ,
+                x * input.headPositionX,
+                y * input.headPositionY,
+                x * input.headYawDeg,
+                y * input.headPitchDeg
+            ]
+        }
+    }
+
+    private static func normalize(_ values: [Double], means: [Double], scales: [Double]) -> [Double] {
+        guard means.count == values.count, scales.count == values.count else {
+            return values
+        }
+        return values.enumerated().map { index, value in
+            (value - means[index]) / scales[index]
         }
     }
 
     func apply(_ rawGaze: CGPoint) -> CGPoint {
-        let b = Self.basis(for: rawGaze, kind: kind)
+        apply(CalibrationInput(rawGaze: rawGaze))
+    }
+
+    func apply(_ input: CalibrationInput) -> CGPoint {
+        let b = Self.basis(
+            for: input,
+            kind: kind,
+            featureMeans: featureMeans,
+            featureScales: featureScales
+        )
+        guard xCoeffs.count == b.count, yCoeffs.count == b.count else {
+            return input.rawPoint
+        }
         var outX = 0.0
         var outY = 0.0
         for i in 0..<b.count {
@@ -37,16 +224,69 @@ struct CalibrationTransform: Codable, Equatable {
     static func solve(rawPoints: [CGPoint], targetPoints: [CGPoint]) -> CalibrationTransform? {
         guard rawPoints.count == targetPoints.count, rawPoints.count >= 3 else { return nil }
         let kind: Kind = rawPoints.count >= 6 ? .quadratic : .affine
-        let dim = (kind == .quadratic) ? 6 : 3
+        let samples = zip(rawPoints, targetPoints).map {
+            CalibrationSample(targetPoint: $0.1, input: CalibrationInput(rawGaze: $0.0))
+        }
+        return fit(samples: samples, kind: kind, ridgeLambda: 1e-8)
+    }
+
+    static func solve(samples: [CalibrationSample]) -> CalibrationTransform? {
+        let fitSamples = GazeCalibrator.robustSamples(samples)
+        guard fitSamples.count >= 3 else { return nil }
+
+        let grouped = Dictionary(grouping: fitSamples) { sample in
+            "\(sample.targetX.rounded(toPlaces: 4)),\(sample.targetY.rounded(toPlaces: 4))"
+        }
+        let records = grouped.values.map { group -> CalibrationSample in
+            let robust = GazeCalibrator.robustMean(group.map { $0.input.rawPoint })
+            return CalibrationSample(
+                targetPoint: group[0].targetPoint,
+                input: CalibrationInput(rawGaze: robust)
+            )
+        }
+
+        let targetLevelSamples = records.sorted {
+            if $0.targetY == $1.targetY { return $0.targetX < $1.targetX }
+            return $0.targetY < $1.targetY
+        }
+        guard targetLevelSamples.count >= 3 else { return nil }
+
+        let candidates: [Kind] = targetLevelSamples.count >= 6 ? [.affine, .quadratic] : [.affine]
+        let scored = candidates.compactMap { kind -> (transform: CalibrationTransform, score: Double)? in
+            guard let transform = fit(samples: targetLevelSamples, kind: kind, ridgeLambda: 1e-6) else {
+                return nil
+            }
+            let residual = transform.meanResidualNorm(samples: targetLevelSamples)
+            guard residual.isFinite else { return nil }
+            let complexityPenalty = Double(transform.xCoeffs.count) * 0.0015
+            return (transform, residual + complexityPenalty)
+        }
+
+        return scored.min { $0.score < $1.score }?.transform
+    }
+
+    private static func fit(
+        samples: [CalibrationSample],
+        kind: Kind,
+        ridgeLambda: Double
+    ) -> CalibrationTransform? {
+        let featureRows = samples.map { featureValues(for: $0.input, kind: kind) }
+        guard let featureCount = featureRows.first?.count, featureRows.allSatisfy({ $0.count == featureCount }) else {
+            return nil
+        }
+
+        let stats = normalizedStats(for: featureRows)
+        let rows = featureRows.map { [1] + normalize($0, means: stats.means, scales: stats.scales) }
+        let dim = featureCount + 1
 
         var ata = Array(repeating: Array(repeating: 0.0, count: dim), count: dim)
         var atbx = Array(repeating: 0.0, count: dim)
         var atby = Array(repeating: 0.0, count: dim)
 
-        for i in 0..<rawPoints.count {
-            let a = basis(for: rawPoints[i], kind: kind)
-            let tx = Double(targetPoints[i].x)
-            let ty = Double(targetPoints[i].y)
+        for i in 0..<samples.count {
+            let a = rows[i]
+            let tx = samples[i].targetX
+            let ty = samples[i].targetY
             for r in 0..<dim {
                 atbx[r] += a[r] * tx
                 atby[r] += a[r] * ty
@@ -56,27 +296,83 @@ struct CalibrationTransform: Codable, Equatable {
             }
         }
 
+        if ridgeLambda > 0 {
+            for i in 1..<dim {
+                ata[i][i] += ridgeLambda
+            }
+        }
+
         guard let xCoef = Self.solveLinearSystem(ata, b: atbx),
               let yCoef = Self.solveLinearSystem(ata, b: atby) else {
-            if kind == .quadratic {
-                let affineRecords = zip(rawPoints, targetPoints).map { ($0, $1) }
-                return solve(rawPoints: affineRecords.map { $0.0 }, targetPoints: affineRecords.map { $0.1 })
-            }
             return nil
         }
-        return CalibrationTransform(kind: kind, xCoeffs: xCoef, yCoeffs: yCoef)
+        return CalibrationTransform(
+            kind: kind,
+            xCoeffs: xCoef,
+            yCoeffs: yCoef,
+            featureMeans: stats.means,
+            featureScales: stats.scales
+        )
     }
 
     func meanResidualNorm(rawPoints: [CGPoint], targetPoints: [CGPoint]) -> Double {
         guard rawPoints.count == targetPoints.count, !rawPoints.isEmpty else { return 0 }
+        let samples = zip(rawPoints, targetPoints).map {
+            CalibrationSample(targetPoint: $0.1, input: CalibrationInput(rawGaze: $0.0))
+        }
+        return meanResidualNorm(samples: samples)
+    }
+
+    func meanResidualNorm(samples: [CalibrationSample]) -> Double {
+        guard !samples.isEmpty else { return 0 }
         var sum = 0.0
-        for i in 0..<rawPoints.count {
-            let mapped = apply(rawPoints[i])
-            let dx = Double(mapped.x - targetPoints[i].x)
-            let dy = Double(mapped.y - targetPoints[i].y)
+        for sample in samples {
+            let mapped = apply(sample.input)
+            let dx = Double(mapped.x - sample.targetX)
+            let dy = Double(mapped.y - sample.targetY)
             sum += sqrt(dx * dx + dy * dy)
         }
-        return sum / Double(rawPoints.count)
+        return sum / Double(samples.count)
+    }
+
+    func robustResidualNorm(samples: [CalibrationSample]) -> Double {
+        guard !samples.isEmpty else { return 0 }
+        let residuals = samples.map { sample in
+            let mapped = apply(sample.input)
+            let dx = Double(mapped.x - sample.targetX)
+            let dy = Double(mapped.y - sample.targetY)
+            return sqrt(dx * dx + dy * dy)
+        }.sorted()
+        let keepCount = max(1, Int(ceil(Double(residuals.count) * 0.8)))
+        let kept = residuals.prefix(keepCount)
+        return kept.reduce(0, +) / Double(keepCount)
+    }
+
+    private static func normalizedStats(for rows: [[Double]]) -> (means: [Double], scales: [Double]) {
+        guard let featureCount = rows.first?.count, !rows.isEmpty else {
+            return ([], [])
+        }
+        var means = Array(repeating: 0.0, count: featureCount)
+        for row in rows {
+            for i in 0..<featureCount {
+                means[i] += row[i]
+            }
+        }
+        means = means.map { $0 / Double(rows.count) }
+
+        var variances = Array(repeating: 0.0, count: featureCount)
+        for row in rows {
+            for i in 0..<featureCount {
+                let diff = row[i] - means[i]
+                variances[i] += diff * diff
+            }
+        }
+
+        let scales = variances.map { variance in
+            let std = sqrt(variance / Double(rows.count))
+            return max(std, 1e-4)
+        }
+        return (means, scales)
     }
 
     private static func solveLinearSystem(_ matrix: [[Double]], b: [Double]) -> [Double]? {
@@ -126,6 +422,22 @@ struct CalibrationSummary: Codable, Equatable {
     let records: [CalibrationRecord]
     let transform: CalibrationTransform
     let meanResidualNorm: Double
+    let sampleCount: Int
+    let baselineHeadPose: HeadPoseSnapshot?
+
+    init(
+        records: [CalibrationRecord],
+        transform: CalibrationTransform,
+        meanResidualNorm: Double,
+        sampleCount: Int = 0,
+        baselineHeadPose: HeadPoseSnapshot? = nil
+    ) {
+        self.records = records
+        self.transform = transform
+        self.meanResidualNorm = meanResidualNorm
+        self.sampleCount = sampleCount
+        self.baselineHeadPose = baselineHeadPose
+    }
 }
 
 enum GazeCalibrator {
@@ -160,10 +472,76 @@ enum GazeCalibrator {
         return CGPoint(x: avgX, y: avgY)
     }
 
+    static func robustSamples(_ samples: [CalibrationSample]) -> [CalibrationSample] {
+        let finiteSamples = samples.filter {
+            $0.input.rawX.isFinite && $0.input.rawY.isFinite
+        }
+        guard finiteSamples.count >= 6 else { return finiteSamples }
+
+        let grouped = Dictionary(grouping: finiteSamples) { sample in
+            "\(sample.targetX.rounded(toPlaces: 4)),\(sample.targetY.rounded(toPlaces: 4))"
+        }
+
+        var kept: [CalibrationSample] = []
+        for group in grouped.values {
+            guard group.count >= 4 else {
+                kept.append(contentsOf: group)
+                continue
+            }
+
+            let center = robustMean(group.map { $0.input.rawPoint })
+            let distances = group.map {
+                hypot($0.input.rawX - Double(center.x), $0.input.rawY - Double(center.y))
+            }
+            let medianDistance = median(distances)
+            let mad = max(0.006, median(distances.map { abs($0 - medianDistance) }))
+            let threshold = max(0.045, medianDistance + 3.5 * mad)
+            kept.append(contentsOf: group.filter {
+                hypot($0.input.rawX - Double(center.x), $0.input.rawY - Double(center.y)) <= threshold
+            })
+        }
+
+        return kept.count >= 3 ? kept : finiteSamples
+    }
+
+    static func meanHeadPose(samples: [CalibrationSample]) -> HeadPoseSnapshot? {
+        guard !samples.isEmpty else { return nil }
+        let count = Float(samples.count)
+        let sum = samples.reduce(
+            HeadPoseSnapshot.zero,
+            { partial, sample in
+                let pose = sample.input
+                return HeadPoseSnapshot(
+                    positionX: partial.positionX + Float(pose.headPositionX),
+                    positionY: partial.positionY + Float(pose.headPositionY),
+                    positionZ: partial.positionZ + Float(pose.headPositionZ),
+                    yawDeg: partial.yawDeg + Float(pose.headYawDeg),
+                    pitchDeg: partial.pitchDeg + Float(pose.headPitchDeg),
+                    rollDeg: partial.rollDeg + Float(pose.headRollDeg)
+                )
+            }
+        )
+        return HeadPoseSnapshot(
+            positionX: sum.positionX / count,
+            positionY: sum.positionY / count,
+            positionZ: sum.positionZ / count,
+            yawDeg: sum.yawDeg / count,
+            pitchDeg: sum.pitchDeg / count,
+            rollDeg: sum.rollDeg / count
+        )
+    }
+
     private static func median(_ values: [Double]) -> Double {
         guard !values.isEmpty else { return 0 }
         let sorted = values.sorted()
         let n = sorted.count
         return n.isMultiple(of: 2) ? (sorted[n / 2 - 1] + sorted[n / 2]) / 2 : sorted[n / 2]
+    }
+}
+
+private extension Double {
+    func rounded(toPlaces places: Int) -> Double {
+        let scale = pow(10.0, Double(places))
+        return (self * scale).rounded() / scale
     }
 }

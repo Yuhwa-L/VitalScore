@@ -41,12 +41,14 @@ final class EyeFocusTestManager: ObservableObject {
     @Published var phase: Phase = .idle
     @Published var dotPosition: CGPoint = CGPoint(x: 0.5, y: 0.5)
     @Published var dotIsTarget = false
+    @Published private(set) var dotHitFlash = false
     @Published private(set) var lastSavedLogURL: URL?
     @Published var startupError: String?
     @Published private(set) var isPreparing: Bool = false
     @Published private(set) var calibrationProgress: Double = 0
     @Published private(set) var calibrationIsCollecting: Bool = false
     @Published private(set) var displayGazePoint: CGPoint?
+    @Published private(set) var aiSummaryError: String?
 
     let gazeBackend: GazeBackend
     let arkitService: GazeTrackingService?
@@ -57,8 +59,17 @@ final class EyeFocusTestManager: ObservableObject {
 
     static let testDurationSeconds: TimeInterval = 30.0
     static let reactionWindowSeconds: TimeInterval = 1.5
-    static let calibrationPointDuration: TimeInterval = 1.6
-    static let calibrationCollectStart: TimeInterval = 0.6
+    static let calibrationPointDuration: TimeInterval = 2.2
+    static let calibrationCollectStart: TimeInterval = 0.7
+    static let motionCooldownSeconds: TimeInterval = 0.25
+    static let gazeHitRadiusPx: CGFloat = 22
+    static let gazeHitSlackPx: CGFloat = 6
+    static let postHitPauseSeconds: TimeInterval = 1.5
+    static let postMissPauseSeconds: TimeInterval = 0.4
+    static let adaptiveBiasGain: Double = 0
+    static let maxAdaptiveBias: CGFloat = 0
+    static let minRuntimeJumpAllowance: CGFloat = 0.18
+    static let maxRuntimeJumpPerSecond: CGFloat = 2.4
 
     private var startTime: Date?
     private var calibrationStartedAt: Date?
@@ -73,13 +84,17 @@ final class EyeFocusTestManager: ObservableObject {
     private var gazeSamples: [GazeSample] = []
     private var screenSize: CGSize = CGSize(width: 390, height: 844)
 
-    private var calibrationRawSamples: [[CGPoint]] = []
+    private var calibrationSamples: [[CalibrationSample]] = []
     private var calibrationRecords: [CalibrationRecord] = []
     private var calibrationTransform: CalibrationTransform = .identity
     private var calibrationResidual: Double = 0
+    private var adaptiveBias: CGVector = .zero
+    private var lastSignificantMotionAt: Date = .distantPast
+    private var lastAcceptedGazePoint: CGPoint?
+    private var lastAcceptedGazeAt: Date?
 
-    private let gazeSmoother = OneEuroFilter2D(minCutoff: 0.8, beta: 0.006)
-    private let calibSmoother = OneEuroFilter2D(minCutoff: 1.5, beta: 0.005)
+    private let gazeSmoother = OneEuroFilter2D(minCutoff: 1.2, beta: 0.015)
+    private let calibSmoother = OneEuroFilter2D(minCutoff: 1.0, beta: 0.01)
     let motionTracker = DeviceMotionTracker()
     static let blinkThreshold: Float = 0.5
     static let saccadeWindowSeconds: TimeInterval = 0.20
@@ -152,10 +167,12 @@ final class EyeFocusTestManager: ObservableObject {
     func beginCalibration() {
         guard gazeAvailable else { return beginCountdown() }
         calibrationStartedAt = Date()
-        calibrationRawSamples = Array(repeating: [], count: GazeCalibrator.targets.count)
+        calibrationSamples = Array(repeating: [], count: GazeCalibrator.targets.count)
         calibrationRecords = []
         calibrationTransform = .identity
         calibrationResidual = 0
+        adaptiveBias = .zero
+        lastSignificantMotionAt = .distantPast
         runCalibrationPoint(0)
     }
 
@@ -176,6 +193,8 @@ final class EyeFocusTestManager: ObservableObject {
             if delay >= 0 && delay <= Self.reactionWindowSeconds * 1000.0 {
                 hits.append((colorChange: last, tapDelayMs: delay))
                 dotIsTarget = false
+                dotHitFlash = true
+                scheduleNextCycle(after: Self.postHitPauseSeconds)
                 return
             }
         }
@@ -183,15 +202,25 @@ final class EyeFocusTestManager: ObservableObject {
     }
 
     private func recordGazeSample(rawGaze: CGPoint, leftBlink: Float, rightBlink: Float, valid: Bool) {
-        let now = Date().timeIntervalSinceReferenceDate
+        let sampleDate = Date()
+        let now = sampleDate.timeIntervalSinceReferenceDate
         let isBlinking = leftBlink > Self.blinkThreshold && rightBlink > Self.blinkThreshold
         let motion = motionTracker.snapshot
+        let currentPose = currentHeadPose()
+
+        if !motion.isStable {
+            lastSignificantMotionAt = sampleDate
+        }
+        let inMotionCooldown = sampleDate.timeIntervalSince(lastSignificantMotionAt) < Self.motionCooldownSeconds
 
         if case .calibrating(let idx) = phase {
             let smoothedRaw = calibSmoother.filter(rawGaze, at: now)
-            if valid && !isBlinking && motion.isStable && calibrationIsCollecting {
-                if idx < calibrationRawSamples.count {
-                    calibrationRawSamples[idx].append(smoothedRaw)
+            let input = CalibrationInput(rawGaze: smoothedRaw, headPose: currentPose, motion: motion)
+            if valid && !isBlinking && motion.isUsableForCalibration && calibrationIsCollecting {
+                if idx < calibrationSamples.count {
+                    calibrationSamples[idx].append(
+                        CalibrationSample(targetPoint: GazeCalibrator.targets[idx], input: input)
+                    )
                 }
             }
             displayGazePoint = smoothedRaw
@@ -200,7 +229,12 @@ final class EyeFocusTestManager: ObservableObject {
 
         guard case .running = phase, let start = testStartedAt else {
             if valid && !isBlinking {
-                displayGazePoint = calibrationTransform.apply(gazeSmoother.filter(rawGaze, at: now))
+                let smoothedRaw = gazeSmoother.filter(rawGaze, at: now)
+                let input = CalibrationInput(rawGaze: smoothedRaw, headPose: currentPose, motion: motion)
+                let calibrated = clampedNormalized(calibrationTransform.apply(input))
+                if !inMotionCooldown {
+                    displayGazePoint = calibrated
+                }
             } else {
                 displayGazePoint = nil
             }
@@ -208,47 +242,120 @@ final class EyeFocusTestManager: ObservableObject {
         }
 
         let smoothedRaw = gazeSmoother.filter(rawGaze, at: now)
-        let calibrated = calibrationTransform.apply(smoothedRaw)
-        displayGazePoint = calibrated
+        let input = CalibrationInput(rawGaze: smoothedRaw, headPose: currentPose, motion: motion)
+        let calibratedBase = clampedNormalized(calibrationTransform.apply(input))
+        let inSettling = sampleDate.timeIntervalSince(lastDotMoveAt) < Self.saccadeWindowSeconds
+        let isOutlier = isRuntimeGazeOutlier(calibratedBase, at: sampleDate)
+
+        if Self.adaptiveBiasGain > 0,
+           valid && !isBlinking && !isOutlier && !inSettling && !inMotionCooldown && motion.isStable {
+            updateAdaptiveBias(estimatedPoint: calibratedBase, targetPoint: dotPosition)
+        }
+
+        let calibrated = clampedNormalized(applyAdaptiveBias(to: calibratedBase))
+        let trackingValid = valid && !isBlinking && !isOutlier && !inMotionCooldown
+
+        if trackingValid {
+            displayGazePoint = calibrated
+            rememberAcceptedGaze(calibratedBase, at: sampleDate)
+        } else if !valid || isBlinking || isOutlier {
+            displayGazePoint = nil
+        }
 
         let rawPx = CGPoint(x: rawGaze.x * screenSize.width, y: rawGaze.y * screenSize.height)
         let calibratedPx = CGPoint(x: calibrated.x * screenSize.width, y: calibrated.y * screenSize.height)
         let targetPx = CGPoint(x: dotPosition.x * screenSize.width, y: dotPosition.y * screenSize.height)
-        let inSettling = Date().timeIntervalSince(lastDotMoveAt) < Self.saccadeWindowSeconds
 
-        let currentPose: HeadPoseSnapshot
         let posDev: Float
         let angDev: Float
-        if let arkit = arkitService {
-            currentPose = HeadPoseSnapshot(transformInCamera: arkit.latestFaceTransformInCamera)
-            if let baseline = calibrationBaselineHeadPose {
-                posDev = currentPose.deviation(from: baseline)
-                angDev = currentPose.angularDeviationDeg(from: baseline)
-            } else {
-                posDev = 0
-                angDev = 0
-            }
+        if let baseline = calibrationBaselineHeadPose {
+            posDev = currentPose.deviation(from: baseline)
+            angDev = currentPose.angularDeviationDeg(from: baseline)
         } else {
-            currentPose = .zero
             posDev = 0
             angDev = 0
         }
 
         let sample = GazeSample(
-            timestamp: Date().timeIntervalSince(start),
+            timestamp: sampleDate.timeIntervalSince(start),
             rawGazePoint: rawPx,
             gazePoint: calibratedPx,
             targetPoint: targetPx,
             leftBlink: leftBlink,
             rightBlink: rightBlink,
-            trackingValid: valid,
+            trackingValid: trackingValid,
             inSettlingWindow: inSettling,
+            inMotionCooldown: inMotionCooldown,
             motion: motion,
             headPose: currentPose,
             headPositionDevM: posDev,
             headAngularDevDeg: angDev
         )
         gazeSamples.append(sample)
+
+        registerGazeHitIfNeeded(gazePx: calibratedPx, targetPx: targetPx, at: sampleDate, valid: trackingValid, blinking: isBlinking)
+    }
+
+    private func registerGazeHitIfNeeded(gazePx: CGPoint, targetPx: CGPoint, at time: Date, valid: Bool, blinking: Bool) {
+        guard case .running = phase else { return }
+        guard dotIsTarget, let last = lastColorChangeAt else { return }
+        guard valid, !blinking else { return }
+        let dx = gazePx.x - targetPx.x
+        let dy = gazePx.y - targetPx.y
+        let distance = sqrt(dx * dx + dy * dy)
+        let threshold = Self.gazeHitRadiusPx + Self.gazeHitSlackPx
+        guard distance <= threshold else { return }
+        let delay = time.timeIntervalSince(last) * 1000.0
+        guard delay >= 0, delay <= Self.reactionWindowSeconds * 1000.0 else { return }
+        hits.append((colorChange: last, tapDelayMs: delay))
+        dotIsTarget = false
+        dotHitFlash = true
+        scheduleNextCycle(after: Self.postHitPauseSeconds)
+    }
+
+    private func currentHeadPose() -> HeadPoseSnapshot {
+        guard let arkit = arkitService else { return .zero }
+        return HeadPoseSnapshot(transformInCamera: arkit.latestFaceTransformInCamera)
+    }
+
+    private func updateAdaptiveBias(estimatedPoint: CGPoint, targetPoint: CGPoint) {
+        let errorX = targetPoint.x - estimatedPoint.x
+        let errorY = targetPoint.y - estimatedPoint.y
+        let errorDistance = hypot(errorX, errorY)
+        guard errorDistance < 0.25 else { return }
+
+        let gain = CGFloat(Self.adaptiveBiasGain)
+        adaptiveBias.dx = clampAdaptiveBias(adaptiveBias.dx * (1 - gain) + errorX * gain)
+        adaptiveBias.dy = clampAdaptiveBias(adaptiveBias.dy * (1 - gain) + errorY * gain)
+    }
+
+    private func applyAdaptiveBias(to point: CGPoint) -> CGPoint {
+        CGPoint(x: point.x + adaptiveBias.dx, y: point.y + adaptiveBias.dy)
+    }
+
+    private func clampAdaptiveBias(_ value: CGFloat) -> CGFloat {
+        max(-Self.maxAdaptiveBias, min(Self.maxAdaptiveBias, value))
+    }
+
+    private func isRuntimeGazeOutlier(_ point: CGPoint, at date: Date) -> Bool {
+        guard let previous = lastAcceptedGazePoint, let previousDate = lastAcceptedGazeAt else {
+            return false
+        }
+        let dt = max(1.0 / 120.0, date.timeIntervalSince(previousDate))
+        let allowedJump = max(Self.minRuntimeJumpAllowance, CGFloat(dt) * Self.maxRuntimeJumpPerSecond)
+        return hypot(point.x - previous.x, point.y - previous.y) > allowedJump
+    }
+
+    private func rememberAcceptedGaze(_ point: CGPoint, at date: Date) {
+        lastAcceptedGazePoint = point
+        lastAcceptedGazeAt = date
+    }
+
+    private func clampedNormalized(_ point: CGPoint) -> CGPoint {
+        CGPoint(
+            x: max(0, min(1, point.x)),
+            y: max(0, min(1, point.y))
+        )
     }
 
     // MARK: - Calibration
@@ -284,10 +391,10 @@ final class EyeFocusTestManager: ObservableObject {
     }
 
     private func completeCalibrationPoint(_ index: Int) {
-        let samples = calibrationRawSamples[index]
+        let samples = calibrationSamples[index]
         let target = GazeCalibrator.targets[index]
         if !samples.isEmpty {
-            let robust = GazeCalibrator.robustMean(samples)
+            let robust = GazeCalibrator.robustMean(samples.map { $0.input.rawPoint })
             let rec = CalibrationRecord(
                 targetPoint: target,
                 rawAvgPoint: robust,
@@ -302,20 +409,27 @@ final class EyeFocusTestManager: ObservableObject {
     }
 
     private func finishCalibration() {
-        let rawPts = calibrationRecords.map { $0.rawAvgPoint }
-        let tgtPts = calibrationRecords.map { $0.targetPoint }
-        if let transform = CalibrationTransform.solve(rawPoints: rawPts, targetPoints: tgtPts) {
+        let allSamples = calibrationSamples.flatMap { $0 }
+        if let transform = CalibrationTransform.solve(samples: allSamples) {
             calibrationTransform = transform
-            calibrationResidual = transform.meanResidualNorm(rawPoints: rawPts, targetPoints: tgtPts)
+            calibrationResidual = transform.meanResidualNorm(samples: allSamples)
             log.info("Calibration solved kind=\(transform.kind.rawValue, privacy: .public) residual=\(self.calibrationResidual, privacy: .public)")
+        } else if let transform = CalibrationTransform.solve(
+            rawPoints: calibrationRecords.map { $0.rawAvgPoint },
+            targetPoints: calibrationRecords.map { $0.targetPoint }
+        ) {
+            calibrationTransform = transform
+            calibrationResidual = transform.meanResidualNorm(
+                rawPoints: calibrationRecords.map { $0.rawAvgPoint },
+                targetPoints: calibrationRecords.map { $0.targetPoint }
+            )
+            log.info("Calibration fallback solved kind=\(transform.kind.rawValue, privacy: .public) residual=\(self.calibrationResidual, privacy: .public)")
         } else {
             calibrationTransform = .identity
             calibrationResidual = 0
             log.error("Calibration failed — using identity transform")
         }
-        if let arkit = arkitService {
-            calibrationBaselineHeadPose = HeadPoseSnapshot(transformInCamera: arkit.latestFaceTransformInCamera)
-        }
+        calibrationBaselineHeadPose = GazeCalibrator.meanHeadPose(samples: allSamples) ?? currentHeadPose()
         beginCountdown()
     }
 
@@ -343,14 +457,44 @@ final class EyeFocusTestManager: ObservableObject {
         testStartedAt = Date()
         if startTime == nil { startTime = testStartedAt }
         moveDot()
-        movementTimer = Timer.scheduledTimer(withTimeInterval: 1.2, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.moveDot() }
+        armTarget()
+    }
+
+    private var testDurationExceeded: Bool {
+        guard let start = testStartedAt else { return false }
+        return Date().timeIntervalSince(start) >= Self.testDurationSeconds
+    }
+
+    private func armTarget() {
+        dotHitFlash = false
+        dotIsTarget = true
+        let stamp = Date()
+        lastColorChangeAt = stamp
+        colorChangeTimestamps.append(stamp)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.reactionWindowSeconds) { [weak self] in
+            Task { @MainActor in
+                guard let self = self, case .running = self.phase else { return }
+                guard self.dotIsTarget, self.lastColorChangeAt == stamp else { return }
+                self.missedTargets += 1
+                self.dotIsTarget = false
+                self.scheduleNextCycle(after: Self.postMissPauseSeconds)
+            }
         }
-        timer = Timer.scheduledTimer(withTimeInterval: 1.8, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.toggleColor() }
-        }
-        endTimer = Timer.scheduledTimer(withTimeInterval: Self.testDurationSeconds, repeats: false) { [weak self] _ in
-            Task { @MainActor in self?.finish() }
+    }
+
+    private func scheduleNextCycle(after delay: TimeInterval) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            Task { @MainActor in
+                guard let self = self, case .running = self.phase else { return }
+                self.dotHitFlash = false
+                if self.testDurationExceeded {
+                    self.finish()
+                    return
+                }
+                self.moveDot()
+                self.armTarget()
+            }
         }
     }
 
@@ -358,27 +502,10 @@ final class EyeFocusTestManager: ObservableObject {
         let x = CGFloat.random(in: 0.15...0.85)
         let y = CGFloat.random(in: 0.20...0.75)
         lastDotMoveAt = Date()
+        lastAcceptedGazePoint = nil
+        lastAcceptedGazeAt = nil
         withAnimation(.easeInOut(duration: 0.6)) {
             dotPosition = CGPoint(x: x, y: y)
-        }
-    }
-
-    private func toggleColor() {
-        if dotIsTarget {
-            missedTargets += 1
-        }
-        dotIsTarget = true
-        lastColorChangeAt = Date()
-        colorChangeTimestamps.append(lastColorChangeAt!)
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.reactionWindowSeconds) { [weak self] in
-            Task { @MainActor in
-                guard let self = self else { return }
-                if self.dotIsTarget, let last = self.lastColorChangeAt, Date().timeIntervalSince(last) >= Self.reactionWindowSeconds {
-                    self.missedTargets += 1
-                    self.dotIsTarget = false
-                }
-            }
         }
     }
 
@@ -387,6 +514,7 @@ final class EyeFocusTestManager: ObservableObject {
         if gazeBackend == .vision { visionService?.stop() }
         motionTracker.stop()
         phase = .processing
+        aiSummaryError = nil
 
         let samplesSnapshot = gazeSamples
         let hitsSnapshot = hits
@@ -395,11 +523,14 @@ final class EyeFocusTestManager: ObservableObject {
         let recordsSnapshot = calibrationRecords
         let transformSnapshot = calibrationTransform
         let residualSnapshot = calibrationResidual
+        let calibrationSampleCountSnapshot = calibrationSamples.reduce(0) { $0 + $1.count }
+        let calibrationBaselineSnapshot = calibrationBaselineHeadPose
         let backendName = gazeBackend.rawValue
         let calibStart = calibrationStartedAt ?? Date()
         let testStart = testStartedAt ?? Date()
         let availSnapshot = gazeAvailable
         let screenSnapshot = screenSize
+        let durationSnapshot = Self.testDurationSeconds
 
         Task.detached(priority: .userInitiated) { [weak self] in
             let reactionTimes = hitsSnapshot.map { $0.tapDelayMs }
@@ -408,14 +539,82 @@ final class EyeFocusTestManager: ObservableObject {
             let reactionScore = EyeFocusTestManager.calculateScore(
                 averageReactionMs: avg,
                 reactionStdDevMs: stdDev,
+                hitCount: reactionTimes.count,
                 missedTargets: missedSnapshot,
                 falseTaps: falseTapsSnapshot
             )
             let gazeMetrics = availSnapshot
-                ? GazeAggregator.aggregate(samples: samplesSnapshot, durationSeconds: Self.testDurationSeconds)
+                ? GazeAggregator.aggregate(samples: samplesSnapshot, durationSeconds: durationSnapshot)
                 : nil
 
             let combined = EyeFocusTestResult.blend(reactionScore: reactionScore, gazeScore: gazeMetrics?.gazeScore)
+            let completedAt = Date()
+            let baseResult = EyeFocusTestResult(
+                averageReactionMs: avg,
+                reactionStdDevMs: stdDev,
+                missedTargets: missedSnapshot,
+                falseTaps: falseTapsSnapshot,
+                reactionScore: reactionScore,
+                gazeMetrics: gazeMetrics,
+                eyeFocusScore: combined,
+                aiSummary: nil,
+                completedAt: completedAt
+            )
+
+            var savedURL: URL? = nil
+            if availSnapshot {
+                let summary = CalibrationSummary(
+                    records: recordsSnapshot,
+                    transform: transformSnapshot,
+                    meanResidualNorm: residualSnapshot,
+                    sampleCount: calibrationSampleCountSnapshot,
+                    baselineHeadPose: calibrationBaselineSnapshot
+                )
+                let reactionLog = ReactionLog(
+                    averageReactionMs: avg,
+                    reactionStdDevMs: stdDev,
+                    missedTargets: missedSnapshot,
+                    falseTaps: falseTapsSnapshot,
+                    hitCount: reactionTimes.count,
+                    reactionTimesMs: reactionTimes
+                )
+                savedURL = GazeDataLogger.save(
+                    samples: samplesSnapshot,
+                    metrics: gazeMetrics,
+                    backend: backendName,
+                    startedAt: calibStart,
+                    testStartedAt: testStart,
+                    durationSeconds: durationSnapshot,
+                    calibration: summary,
+                    screenSize: screenSnapshot,
+                    reaction: reactionLog
+                )
+            }
+
+            let aiSummary: EyeFocusAISummary?
+            var aiSummaryErrorMessage: String?
+            if let savedURL {
+                do {
+                    aiSummary = try await OpenAIEyeFocusSummaryClient().summarizeLog(
+                        at: savedURL,
+                        result: baseResult
+                    )
+                } catch OpenAIEyeFocusSummaryError.missingAPIKey {
+                    aiSummaryErrorMessage = "OpenAI API key is not configured in this app build. Regenerate local config, rebuild, and reinstall the app."
+                    aiSummary = nil
+                } catch {
+                    aiSummaryErrorMessage = error.localizedDescription
+                    log.error("AI gaze summary failed: \(error.localizedDescription, privacy: .public)")
+                    aiSummary = nil
+                }
+            } else if availSnapshot {
+                aiSummaryErrorMessage = "Gaze log was not saved, so the API summary could not be generated."
+                aiSummary = nil
+            } else {
+                aiSummaryErrorMessage = "API summary requires gaze tracking data, which is not available on this device."
+                aiSummary = nil
+            }
+
             let result = EyeFocusTestResult(
                 averageReactionMs: avg,
                 reactionStdDevMs: stdDev,
@@ -424,30 +623,15 @@ final class EyeFocusTestManager: ObservableObject {
                 reactionScore: reactionScore,
                 gazeMetrics: gazeMetrics,
                 eyeFocusScore: combined,
-                completedAt: Date()
+                aiSummary: aiSummary,
+                completedAt: completedAt
             )
-
-            var savedURL: URL? = nil
-            if availSnapshot {
-                let summary = CalibrationSummary(
-                    records: recordsSnapshot,
-                    transform: transformSnapshot,
-                    meanResidualNorm: residualSnapshot
-                )
-                savedURL = GazeDataLogger.save(
-                    samples: samplesSnapshot,
-                    metrics: gazeMetrics,
-                    backend: backendName,
-                    startedAt: calibStart,
-                    testStartedAt: testStart,
-                    durationSeconds: Self.testDurationSeconds,
-                    calibration: summary,
-                    screenSize: screenSnapshot
-                )
-            }
+            let finalSavedURL = savedURL
+            let finalAISummaryErrorMessage = aiSummaryErrorMessage
 
             await MainActor.run { [weak self] in
-                self?.lastSavedLogURL = savedURL
+                self?.lastSavedLogURL = finalSavedURL
+                self?.aiSummaryError = finalAISummaryErrorMessage
                 self?.phase = .finished(result)
             }
             _ = self
@@ -465,13 +649,18 @@ final class EyeFocusTestManager: ObservableObject {
         missedTargets = 0
         falseTaps = 0
         gazeSamples.removeAll()
-        calibrationRawSamples.removeAll()
+        calibrationSamples.removeAll()
         calibrationRecords.removeAll()
         calibrationTransform = .identity
         calibrationResidual = 0
+        adaptiveBias = .zero
+        lastSignificantMotionAt = .distantPast
+        lastAcceptedGazePoint = nil
+        lastAcceptedGazeAt = nil
         calibrationProgress = 0
         calibrationIsCollecting = false
         displayGazePoint = nil
+        aiSummaryError = nil
         gazeSmoother.reset()
         calibSmoother.reset()
         calibrationBaselineHeadPose = nil
@@ -495,14 +684,32 @@ final class EyeFocusTestManager: ObservableObject {
     nonisolated static func calculateScore(
         averageReactionMs: Double,
         reactionStdDevMs: Double,
+        hitCount: Int,
         missedTargets: Int,
         falseTaps: Int
     ) -> Double {
-        let reactionPenalty = max(0, averageReactionMs - 300) / 8
-        let variabilityPenalty = reactionStdDevMs / 15
-        let missPenalty = Double(missedTargets) * 8
-        let falseTapPenalty = Double(falseTaps) * 5
-        let raw = 100 - reactionPenalty - variabilityPenalty - missPenalty - falseTapPenalty
+        let totalTargets = hitCount + missedTargets
+        guard totalTargets > 0 else { return 0 }
+        let hitRate = Double(hitCount) / Double(totalTargets)
+        let base = hitRate * 100.0
+
+        let speedFactor: Double
+        if hitCount > 0 {
+            let overage = max(0, averageReactionMs - 400)
+            speedFactor = max(0.3, min(1.0, 1.0 - overage / 1500.0))
+        } else {
+            speedFactor = 1.0
+        }
+
+        let consistencyFactor: Double
+        if hitCount > 1 {
+            consistencyFactor = max(0.6, min(1.0, 1.0 - reactionStdDevMs / 1500.0))
+        } else {
+            consistencyFactor = 1.0
+        }
+
+        let falseTapPenalty = Double(falseTaps) * 3
+        let raw = base * speedFactor * consistencyFactor - falseTapPenalty
         return min(100, max(0, raw))
     }
 

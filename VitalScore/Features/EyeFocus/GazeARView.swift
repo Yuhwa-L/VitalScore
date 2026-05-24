@@ -23,6 +23,9 @@ struct GazeARView: UIViewRepresentable {
             let config = ARFaceTrackingConfiguration()
             config.isLightEstimationEnabled = false
             config.maximumNumberOfTrackedFaces = 1
+            if ARFaceTrackingConfiguration.supportsWorldTracking {
+                config.isWorldTrackingEnabled = true
+            }
             view.session.run(config, options: [.resetTracking, .removeExistingAnchors])
             service.attach(session: view.session)
         }

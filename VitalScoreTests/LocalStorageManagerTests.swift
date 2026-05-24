@@ -338,5 +338,33 @@ private extension JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return decoder
+    func test_saveEyeFocusSummary_persistsLatestSummary() {
+        let older = EyeFocusAISummary(
+            resultCompletedAt: Date().addingTimeInterval(-3600),
+            generatedAt: Date().addingTimeInterval(-3600),
+            model: "gpt-5-mini",
+            sourceLogFileName: "old.json",
+            overallSummary: "Older summary",
+            sections: [
+                EyeFocusAISummarySection(title: "Reaction", summary: "Older reaction summary")
+            ]
+        )
+        let newer = EyeFocusAISummary(
+            resultCompletedAt: Date(),
+            generatedAt: Date(),
+            model: "gpt-5-mini",
+            sourceLogFileName: "new.json",
+            overallSummary: "Newer summary",
+            sections: [
+                EyeFocusAISummarySection(title: "Gaze accuracy", summary: "Newer gaze summary")
+            ]
+        )
+
+        storage.saveEyeFocusSummary(older)
+        storage.saveEyeFocusSummary(newer)
+
+        XCTAssertEqual(storage.loadEyeFocusSummaries().count, 2)
+        XCTAssertEqual(storage.latestEyeFocusSummary()?.overallSummary, "Newer summary")
+        XCTAssertEqual(storage.latestEyeFocusSummary()?.sections.first?.title, "Gaze accuracy")
     }
 }

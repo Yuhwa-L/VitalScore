@@ -19,6 +19,10 @@ struct MotionSnapshot: Codable, Equatable {
         gravityZ: 0,
         isStable: true
     )
+
+    var isUsableForCalibration: Bool {
+        rotationRateMag < 0.65 && userAccelerationMag < 0.22
+    }
 }
 
 @MainActor
