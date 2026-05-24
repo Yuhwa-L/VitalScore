@@ -7,6 +7,7 @@ struct HealthDashboardView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var showEyeFocusTest = false
+    @State private var showVoiceTracking = false
     @State private var lastWellnessResult: WellnessDeltaResult?
     @State private var showInsight = false
     @State private var seedMessage: String?
@@ -55,6 +56,13 @@ struct HealthDashboardView: View {
                         unit: "kcal"
                     )
                     MetricCard(
+                        title: "Voice Score",
+                        value: format(todayRecord?.voiceScore, digits: 0),
+                        baseline: format(baselineVoiceScore, digits: 0),
+                        delta: delta(todayRecord?.voiceScore, baselineVoiceScore),
+                        unit: ""
+                    )
+                    MetricCard(
                         title: "Wellness Delta",
                         value: lastWellnessResult.map { ($0.score >= 0 ? "+" : "") + "\($0.score)" },
                         baseline: lastWellnessResult?.confidence,
@@ -70,6 +78,18 @@ struct HealthDashboardView: View {
                             .frame(maxWidth: .infinity)
                             .padding()
                             .background(Color.accentColor)
+                            .foregroundColor(.white)
+                            .cornerRadius(12)
+                    }
+
+                    Button {
+                        showVoiceTracking = true
+                    } label: {
+                        Text("Run Voice Tracking")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.teal)
                             .foregroundColor(.white)
                             .cornerRadius(12)
                     }
@@ -133,6 +153,13 @@ struct HealthDashboardView: View {
             .navigationDestination(isPresented: $showEyeFocusTest) {
                 EyeFocusTestView(onFinished: handleEyeFocusFinished)
             }
+            .navigationDestination(isPresented: $showVoiceTracking) {
+                VoiceTrackingView(
+                    previousSessions: storage.loadVoiceSessions(),
+                    experimentTag: experiments.displayName,
+                    onFinished: handleVoiceTrackingFinished
+                )
+            }
             .navigationDestination(isPresented: $showInsight) {
                 if let result = lastWellnessResult {
                     InsightReportView(result: result)
@@ -161,21 +188,47 @@ struct HealthDashboardView: View {
         engine.buildBaseline(from: storage.loadAllRecords())
     }
 
+    private var todayRecord: DailyHealthRecord? {
+        storage.loadAllRecords()
+            .first(where: { Calendar.current.isDateInToday($0.date) })
+    }
+
+    private var baselineVoiceScore: Double? {
+        WellnessScoreEngine.average(
+            storage.voiceSessionsInWindow(days: 7)
+                .filter { !Calendar.current.isDateInToday($0.date) }
+                .filter { $0.result.usable }
+                .compactMap { $0.result.voiceScore }
+        )
+    }
+
     private func handleEyeFocusFinished(_ result: EyeFocusTestResult) {
         let baselineNow = baseline
+        let existingRecord = todayRecord
         let todayRecord = DailyHealthRecord(
-            date: Date(),
-            experimentTag: experiments.displayName,
-            sleepHours: healthKit.lastNightSleepHours,
-            restingHeartRateBPM: healthKit.latestRestingHeartRate,
-            hrvMs: healthKit.latestHRV,
-            stepCount: healthKit.todaySteps,
-            activeEnergyKcal: healthKit.todayActiveEnergy,
+            id: existingRecord?.id ?? UUID(),
+            date: existingRecord?.date ?? Date(),
+            experimentTag: existingRecord?.experimentTag ?? experiments.displayName,
+            sleepHours: existingRecord?.sleepHours ?? healthKit.lastNightSleepHours,
+            restingHeartRateBPM: existingRecord?.restingHeartRateBPM ?? healthKit.latestRestingHeartRate,
+            hrvMs: existingRecord?.hrvMs ?? healthKit.latestHRV,
+            stepCount: existingRecord?.stepCount ?? healthKit.todaySteps,
+            activeEnergyKcal: existingRecord?.activeEnergyKcal ?? healthKit.todayActiveEnergy,
             eyeFocusScore: result.eyeFocusScore,
             averageReactionMs: result.averageReactionMs,
             reactionStdDevMs: result.reactionStdDevMs,
             missedTargets: result.missedTargets,
             falseTaps: result.falseTaps,
+            balanceScore: existingRecord?.balanceScore,
+            swayIndex: existingRecord?.swayIndex,
+            voiceScore: existingRecord?.voiceScore,
+            voiceAverageVolumeDb: existingRecord?.voiceAverageVolumeDb,
+            voiceVolumeStdDevDb: existingRecord?.voiceVolumeStdDevDb,
+            voiceSilenceRatio: existingRecord?.voiceSilenceRatio,
+            voicePeakVolumeDb: existingRecord?.voicePeakVolumeDb,
+            selfReportedEnergy: existingRecord?.selfReportedEnergy,
+            selfReportedStress: existingRecord?.selfReportedStress,
+            selfReportedSleepQuality: existingRecord?.selfReportedSleepQuality,
             wellnessDeltaScore: 0,
             confidenceLevel: "Low",
             insightText: ""
@@ -195,6 +248,16 @@ struct HealthDashboardView: View {
             reactionStdDevMs: todayRecord.reactionStdDevMs,
             missedTargets: todayRecord.missedTargets,
             falseTaps: todayRecord.falseTaps,
+            balanceScore: todayRecord.balanceScore,
+            swayIndex: todayRecord.swayIndex,
+            voiceScore: todayRecord.voiceScore,
+            voiceAverageVolumeDb: todayRecord.voiceAverageVolumeDb,
+            voiceVolumeStdDevDb: todayRecord.voiceVolumeStdDevDb,
+            voiceSilenceRatio: todayRecord.voiceSilenceRatio,
+            voicePeakVolumeDb: todayRecord.voicePeakVolumeDb,
+            selfReportedEnergy: todayRecord.selfReportedEnergy,
+            selfReportedStress: todayRecord.selfReportedStress,
+            selfReportedSleepQuality: todayRecord.selfReportedSleepQuality,
             wellnessDeltaScore: computed.score,
             confidenceLevel: computed.confidence,
             insightText: computed.insightText
@@ -203,6 +266,43 @@ struct HealthDashboardView: View {
         lastWellnessResult = computed
         showEyeFocusTest = false
         showInsight = true
+    }
+
+    private func handleVoiceTrackingFinished(_ session: VoiceTrackingSession) {
+        let existing = todayRecord
+        let result = session.result
+        storage.saveVoiceSession(session)
+
+        let record = DailyHealthRecord(
+            id: existing?.id ?? UUID(),
+            date: existing?.date ?? Date(),
+            experimentTag: existing?.experimentTag ?? experiments.displayName,
+            sleepHours: existing?.sleepHours ?? healthKit.lastNightSleepHours,
+            restingHeartRateBPM: existing?.restingHeartRateBPM ?? healthKit.latestRestingHeartRate,
+            hrvMs: existing?.hrvMs ?? healthKit.latestHRV,
+            stepCount: existing?.stepCount ?? healthKit.todaySteps,
+            activeEnergyKcal: existing?.activeEnergyKcal ?? healthKit.todayActiveEnergy,
+            eyeFocusScore: existing?.eyeFocusScore,
+            averageReactionMs: existing?.averageReactionMs,
+            reactionStdDevMs: existing?.reactionStdDevMs,
+            missedTargets: existing?.missedTargets,
+            falseTaps: existing?.falseTaps,
+            balanceScore: existing?.balanceScore,
+            swayIndex: existing?.swayIndex,
+            voiceScore: result.voiceScore,
+            voiceAverageVolumeDb: result.averageVolumeDb,
+            voiceVolumeStdDevDb: result.volumeStdDevDb,
+            voiceSilenceRatio: result.silenceRatio,
+            voicePeakVolumeDb: result.peakVolumeDb,
+            selfReportedEnergy: existing?.selfReportedEnergy,
+            selfReportedStress: existing?.selfReportedStress,
+            selfReportedSleepQuality: existing?.selfReportedSleepQuality,
+            wellnessDeltaScore: existing?.wellnessDeltaScore ?? 0,
+            confidenceLevel: existing?.confidenceLevel ?? "Low",
+            insightText: existing?.insightText ?? ""
+        )
+        storage.saveRecord(record)
+        showVoiceTracking = false
     }
 
     private func refreshWellnessFromStorage() {
