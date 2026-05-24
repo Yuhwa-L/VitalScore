@@ -11,6 +11,10 @@ struct BaselineMetrics: Codable {
     let averageGazeScore: Double?
     let averageGazeAccuracyPx: Double?
     let averageBalanceScore: Double?
+    let averageVoiceScore: Double?
+    let averageSelfReportedEnergy: Double?
+    let averageSelfReportedStress: Double?
+    let averageSelfReportedSleepQuality: Double?
 
     init(
         startDate: Date,
@@ -22,7 +26,11 @@ struct BaselineMetrics: Codable {
         averageEyeFocusScore: Double?,
         averageGazeScore: Double? = nil,
         averageGazeAccuracyPx: Double? = nil,
-        averageBalanceScore: Double?
+        averageBalanceScore: Double?,
+        averageVoiceScore: Double? = nil,
+        averageSelfReportedEnergy: Double? = nil,
+        averageSelfReportedStress: Double? = nil,
+        averageSelfReportedSleepQuality: Double? = nil
     ) {
         self.startDate = startDate
         self.endDate = endDate
@@ -34,6 +42,10 @@ struct BaselineMetrics: Codable {
         self.averageGazeScore = averageGazeScore
         self.averageGazeAccuracyPx = averageGazeAccuracyPx
         self.averageBalanceScore = averageBalanceScore
+        self.averageVoiceScore = averageVoiceScore
+        self.averageSelfReportedEnergy = averageSelfReportedEnergy
+        self.averageSelfReportedStress = averageSelfReportedStress
+        self.averageSelfReportedSleepQuality = averageSelfReportedSleepQuality
     }
 
     static let empty = BaselineMetrics(
@@ -46,6 +58,10 @@ struct BaselineMetrics: Codable {
         averageEyeFocusScore: nil,
         averageGazeScore: nil,
         averageGazeAccuracyPx: nil,
-        averageBalanceScore: nil
+        averageBalanceScore: nil,
+        averageVoiceScore: nil,
+        averageSelfReportedEnergy: nil,
+        averageSelfReportedStress: nil,
+        averageSelfReportedSleepQuality: nil
     )
 }

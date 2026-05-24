@@ -7,6 +7,7 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var showResetConfirm = false
+    @State private var mockDataMessage: String?
     #if DEBUG
     @AppStorage(VoiceRawAudioDebugExportSettings.userDefaultsKey) private var rawWavExportEnabled = false
     @AppStorage(VoiceRawAudioDebugExportSettings.aiUploadUserDefaultsKey) private var rawWavAIUploadEnabled = false
@@ -32,8 +33,18 @@ struct SettingsView: View {
                     } label: {
                         Label("Reload from JSON Seed", systemImage: "arrow.clockwise")
                     }
+                    Button {
+                        loadWellnessDemoData()
+                    } label: {
+                        Label("Load 7-Day Wellness Demo", systemImage: "chart.line.uptrend.xyaxis")
+                    }
                     if let lastFetched = healthKit.lastFetchedAt {
                         LabeledContent("Last refresh", value: lastFetched.formatted(date: .omitted, time: .standard))
+                    }
+                    if let mockDataMessage {
+                        Text(mockDataMessage)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
@@ -66,6 +77,9 @@ struct SettingsView: View {
                     LabeledContent("App", value: "VitalScore")
                     LabeledContent("Version", value: Bundle.main.versionString)
                     LabeledContent("Build", value: Bundle.main.buildString)
+                    LabeledContent("Voice STT Provider", value: Bundle.main.voiceTranscriptionProviderPreference.displayName)
+                    LabeledContent("Apple Speech Mode", value: Bundle.main.speechRecognitionMode.displayName)
+                    LabeledContent("Cloud STT Model", value: Bundle.main.aiTranscriptionModel)
                     Link("Privacy Policy", destination: Bundle.main.privacyPolicyURL)
                     Link("Terms of Service", destination: Bundle.main.termsURL)
                 }
@@ -96,6 +110,19 @@ struct SettingsView: View {
             } message: {
                 Text("This clears onboarding, permission, and all saved records. The next launch will start from the welcome screen.")
             }
+        }
+    }
+
+    private func loadWellnessDemoData() {
+        do {
+            let result = try storage.loadWellnessDemoFixture()
+            experiments.select(.morningSunlight)
+            if let latestRecord = result.latestRecord {
+                healthKit.applyMockRecord(latestRecord)
+            }
+            mockDataMessage = "Loaded \(result.recordsImported) days and \(result.voiceSessionsImported) voice sessions. Wellness scores were recalculated from the demo data."
+        } catch {
+            mockDataMessage = error.localizedDescription
         }
     }
 }
@@ -143,7 +170,6 @@ extension Bundle {
     }
 
     private func configuredString(for key: String, fallback: String) -> String {
-        let rawValue = (infoDictionary?[key] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return rawValue?.isEmpty == false ? rawValue! : fallback
+        configuredStringValue(for: key, fallback: fallback)
     }
 }

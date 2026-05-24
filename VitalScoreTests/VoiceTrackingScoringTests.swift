@@ -72,32 +72,26 @@ final class VoiceTrackingScoringTests: XCTestCase {
         XCTAssertFalse(scored.topDrivers.contains { $0.localizedCaseInsensitiveContains("shimmer") })
     }
 
-    func test_aiConversationAutoSubmit_requiresMoreThanOneWord() {
-        XCTAssertFalse(VoiceTrackingManager.shouldAutoSubmitConversationTranscript(
-            "tired",
-            elapsedSinceTurnStart: 10,
-            elapsedSinceLastSpeech: 10
-        ))
+    func test_aiConversationTimingTargetsTwoToThreeMinutes() {
+        XCTAssertEqual(VoiceTrackingManager.aiConversationMaxTurns, 4)
+        XCTAssertEqual(VoiceTrackingManager.aiConversationTurnDurationSeconds, 35)
+        XCTAssertEqual(VoiceTrackingManager.aiConversationTotalDurationSeconds, 140)
+        XCTAssertGreaterThanOrEqual(VoiceTrackingManager.aiConversationTotalDurationSeconds, 120)
+        XCTAssertLessThanOrEqual(VoiceTrackingManager.aiConversationTotalDurationSeconds, 180)
     }
 
-    func test_aiConversationAutoSubmit_requiresClearPauseAndMinimumListeningTime() {
-        let transcript = "I feel tired today"
+    func test_speechRecognitionModeParsesConfiguredValues() {
+        XCTAssertEqual(SpeechRecognitionMode(configuredValue: nil), .bestAvailable)
+        XCTAssertEqual(SpeechRecognitionMode(configuredValue: "best-available"), .bestAvailable)
+        XCTAssertEqual(SpeechRecognitionMode(configuredValue: "on_device"), .onDevice)
+        XCTAssertEqual(SpeechRecognitionMode(configuredValue: "unknown"), .bestAvailable)
+    }
 
-        XCTAssertFalse(VoiceTrackingManager.shouldAutoSubmitConversationTranscript(
-            transcript,
-            elapsedSinceTurnStart: 1,
-            elapsedSinceLastSpeech: 10
-        ))
-        XCTAssertFalse(VoiceTrackingManager.shouldAutoSubmitConversationTranscript(
-            transcript,
-            elapsedSinceTurnStart: 10,
-            elapsedSinceLastSpeech: 0.5
-        ))
-        XCTAssertTrue(VoiceTrackingManager.shouldAutoSubmitConversationTranscript(
-            transcript,
-            elapsedSinceTurnStart: 4,
-            elapsedSinceLastSpeech: 3
-        ))
+    func test_voiceTranscriptionProviderPreferenceParsesConfiguredValues() {
+        XCTAssertEqual(VoiceTranscriptionProviderPreference(configuredValue: nil), .fluidAudio)
+        XCTAssertEqual(VoiceTranscriptionProviderPreference(configuredValue: "fluid-audio"), .fluidAudio)
+        XCTAssertEqual(VoiceTranscriptionProviderPreference(configuredValue: "apple_speech"), .appleSpeech)
+        XCTAssertEqual(VoiceTranscriptionProviderPreference(configuredValue: "unknown"), .fluidAudio)
     }
 
     private func makeSession(date: Date, eGeMAPS: VoiceEGeMAPSFeatureSet) -> VoiceTrackingSession {

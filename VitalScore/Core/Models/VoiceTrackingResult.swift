@@ -42,6 +42,31 @@ struct VoiceTaskAnalysis: Codable, Equatable, Identifiable {
     let qualityIssues: [String]
     let usable: Bool
     let featureVersion: String
+
+    func removingLivePromptText() -> VoiceTaskAnalysis {
+        guard taskType == .guidedConversation else { return self }
+        return VoiceTaskAnalysis(
+            taskType: taskType,
+            promptId: promptId,
+            promptText: nil,
+            targetDurationSeconds: targetDurationSeconds,
+            durationSeconds: durationSeconds,
+            sampleCount: sampleCount,
+            averageVolumeDb: averageVolumeDb,
+            volumeStdDevDb: volumeStdDevDb,
+            peakVolumeDb: peakVolumeDb,
+            silenceRatio: silenceRatio,
+            clippingPercentage: clippingPercentage,
+            zeroCrossingRate: zeroCrossingRate,
+            voicedFrameRatio: voicedFrameRatio,
+            snrDb: snrDb,
+            eGeMAPS: eGeMAPS,
+            qualityScore: qualityScore,
+            qualityIssues: qualityIssues,
+            usable: usable,
+            featureVersion: featureVersion
+        )
+    }
 }
 
 struct VoiceEGeMAPSFeatureSet: Codable, Equatable {
@@ -298,6 +323,19 @@ struct VoiceTrackingResult: Codable, Equatable, Identifiable {
     let featureExtractorVersion: String
     let modelVersion: String
 
+    var hasLiveConversationTask: Bool {
+        taskAnalyses.contains { $0.taskType == .guidedConversation }
+    }
+
+    var containsLocallySavedLiveData: Bool {
+        !conversationExchanges.isEmpty ||
+        conversationSummary != nil ||
+        taskAnalyses.contains {
+            $0.taskType == .guidedConversation &&
+            $0.promptText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        }
+    }
+
     init(
         id: UUID = UUID(),
         completedAt: Date,
@@ -367,6 +405,33 @@ struct VoiceTrackingResult: Codable, Equatable, Identifiable {
             taskAnalyses: taskAnalyses,
             conversationExchanges: conversationExchanges,
             conversationSummary: conversationSummary,
+            eGeMAPS: eGeMAPS,
+            baselineSessionsUsed: baselineSessionsUsed,
+            baselineStatus: baselineStatus,
+            topDrivers: topDrivers,
+            featureExtractorVersion: featureExtractorVersion,
+            modelVersion: modelVersion
+        )
+    }
+
+    func removingLocallySavedLiveData() -> VoiceTrackingResult {
+        guard containsLocallySavedLiveData else { return self }
+        return VoiceTrackingResult(
+            id: id,
+            completedAt: completedAt,
+            durationSeconds: durationSeconds,
+            voiceScore: voiceScore,
+            voiceConfidence: voiceConfidence,
+            averageVolumeDb: averageVolumeDb,
+            volumeStdDevDb: volumeStdDevDb,
+            silenceRatio: silenceRatio,
+            peakVolumeDb: peakVolumeDb,
+            overallQualityScore: overallQualityScore,
+            usable: usable,
+            qualityIssues: qualityIssues,
+            taskAnalyses: taskAnalyses.map { $0.removingLivePromptText() },
+            conversationExchanges: [],
+            conversationSummary: nil,
             eGeMAPS: eGeMAPS,
             baselineSessionsUsed: baselineSessionsUsed,
             baselineStatus: baselineStatus,

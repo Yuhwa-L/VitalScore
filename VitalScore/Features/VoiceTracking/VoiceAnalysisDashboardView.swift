@@ -71,25 +71,57 @@ struct VoiceAnalysisDashboardView: View {
     }
 
     private var scoreTrend: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Voice Score History")
-                .font(.headline)
+        let xDomain = scoreTrendXDomain
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Voice Score History")
+                    .font(.headline)
+                Spacer()
+                if let latest = latestSession {
+                    Text("Latest \(format(latest.result.voiceScore, digits: 0) ?? "--")")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.teal)
+                }
+            }
             Chart(sortedSessions) { session in
                 LineMark(
                     x: .value("Date", session.date),
                     y: .value("Score", session.result.voiceScore)
                 )
                 .foregroundStyle(.teal)
+                .interpolationMethod(.monotone)
                 PointMark(
                     x: .value("Date", session.date),
                     y: .value("Score", session.result.voiceScore)
                 )
                 .foregroundStyle(session.result.usable ? .teal : .orange)
+                .symbolSize(session.id == latestSession?.id ? 110 : 60)
             }
             .chartYScale(domain: 0...100)
-            .frame(height: 180)
+            .chartXScale(domain: xDomain.lowerBound...xDomain.upperBound)
+            .chartXAxis {
+                AxisMarks(values: .automatic(desiredCount: 4)) { value in
+                    AxisGridLine()
+                    AxisTick()
+                    AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                }
+            }
+            .chartYAxis {
+                AxisMarks(values: [0, 25, 50, 75, 100])
+            }
+            .frame(height: 200)
         }
         .panelStyle()
+    }
+
+    private var scoreTrendXDomain: ClosedRange<Date> {
+        let now = Date()
+        let earliest = sortedSessions.first?.date ?? now
+        let latest = min(sortedSessions.last?.date ?? now, now)
+        let lower = min(earliest, latest)
+        // Always give the chart at least a 24h window so a single point doesn't collapse.
+        let upper = max(latest, lower.addingTimeInterval(86_400))
+        return lower...upper
     }
 
     private var baselineReadinessPanel: some View {

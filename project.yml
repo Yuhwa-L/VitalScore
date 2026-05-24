@@ -13,6 +13,11 @@ settings:
     CODE_SIGN_IDENTITY: "$(VITALSCORE_CODE_SIGN_IDENTITY)"
     PROVISIONING_PROFILE_SPECIFIER: "$(VITALSCORE_PROVISIONING_PROFILE_SPECIFIER)"
 
+packages:
+  FluidAudio:
+    url: https://github.com/FluidInference/FluidAudio.git
+    from: 0.12.4
+
 targets:
   VitalScore:
     type: application
@@ -42,6 +47,9 @@ targets:
       properties:
         com.apple.developer.healthkit: true
         com.apple.developer.healthkit.access: []
+    dependencies:
+      - package: FluidAudio
+        product: FluidAudio
 
   VitalScoreTests:
     type: bundle.unit-test
