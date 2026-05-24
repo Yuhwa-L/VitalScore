@@ -5,6 +5,7 @@ final class LocalStorageManager: ObservableObject {
     static let experimentKey = "com.vitalscore.experiment.v1"
     static let onboardingKey = "com.vitalscore.onboardingComplete.v1"
     static let healthPermissionKey = "com.vitalscore.healthPermissionGranted.v1"
+    static let voiceSessionsKey = "com.vitalscore.voiceSessions.v1"
 
     private let defaults: UserDefaults
 
@@ -31,6 +32,28 @@ final class LocalStorageManager: ObservableObject {
             return []
         }
         return loadAllRecords().filter { $0.date >= cutoff && $0.date < reference }
+    }
+
+    func saveVoiceSession(_ session: VoiceTrackingSession) {
+        var existing = loadVoiceSessions()
+        existing.removeAll { $0.id == session.id }
+        existing.append(session)
+        existing.sort { $0.date < $1.date }
+        if let data = try? JSONEncoder().encode(existing) {
+            defaults.set(data, forKey: Self.voiceSessionsKey)
+        }
+    }
+
+    func loadVoiceSessions() -> [VoiceTrackingSession] {
+        guard let data = defaults.data(forKey: Self.voiceSessionsKey) else { return [] }
+        return (try? JSONDecoder().decode([VoiceTrackingSession].self, from: data)) ?? []
+    }
+
+    func voiceSessionsInWindow(days: Int, asOf reference: Date = Date()) -> [VoiceTrackingSession] {
+        guard let cutoff = Calendar.current.date(byAdding: .day, value: -days, to: reference) else {
+            return []
+        }
+        return loadVoiceSessions().filter { $0.date >= cutoff && $0.date < reference }
     }
 
     func saveSelectedExperiment(_ tag: ExperimentTag?, customLabel: String? = nil) {
@@ -64,6 +87,7 @@ final class LocalStorageManager: ObservableObject {
         defaults.removeObject(forKey: Self.experimentKey)
         defaults.removeObject(forKey: Self.onboardingKey)
         defaults.removeObject(forKey: Self.healthPermissionKey)
+        defaults.removeObject(forKey: Self.voiceSessionsKey)
     }
 
     private struct ExperimentSelectionPayload: Codable {

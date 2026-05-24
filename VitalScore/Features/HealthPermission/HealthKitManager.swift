@@ -1,4 +1,5 @@
 import Foundation
+import HealthKit
 
 @MainActor
 final class HealthKitManager: ObservableObject {
@@ -14,6 +15,24 @@ final class HealthKitManager: ObservableObject {
     @Published var lastNightSleepHours: Double?
 
     private let permissionKey = "com.vitalscore.healthPermissionGranted.v1"
+
+    nonisolated static func totalAsleepSeconds(from samples: [HKCategorySample]) -> TimeInterval {
+        samples
+            .filter { isAsleepValue($0.value) }
+            .reduce(0) { total, sample in
+                total + sample.endDate.timeIntervalSince(sample.startDate)
+            }
+    }
+
+    nonisolated static func isAsleepValue(_ value: Int) -> Bool {
+        if #available(iOS 16.0, *) {
+            return value == HKCategoryValueSleepAnalysis.asleepCore.rawValue
+                || value == HKCategoryValueSleepAnalysis.asleepDeep.rawValue
+                || value == HKCategoryValueSleepAnalysis.asleepREM.rawValue
+                || value == HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue
+        }
+        return value == 1
+    }
 
     init() {
         hasRequestedAuthorization = UserDefaults.standard.bool(forKey: permissionKey)

@@ -24,6 +24,8 @@
 	<string>VitalScore does not write to Health, but iOS requires this string when HealthKit is enabled.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>VitalScore uses the camera only for the optional eye-focus test. The test is for wellness trends and is not a medical diagnosis.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>VitalScore uses the microphone for the optional voice tracking check. Audio is analyzed live for wellness trends and is not stored.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UIApplicationSceneManifest</key>
