@@ -372,7 +372,7 @@ struct VoiceTrackingView: View {
         case .fixedPrompt:
             return "Follow the fixed prompts on screen: quiet calibration, two ahh sounds, counting from 1 to 10, and the read-aloud sentence. Audio is analyzed on device for acoustic features; raw audio is not stored unless enabled in debug settings."
         case .advancedFreestyle:
-            return "Have a 2-3 minute AI-guided voice conversation. There are no ahh, counting, or reading prompts in advanced mode. The app transcribes your responses for wellness trend analysis; raw audio is not stored unless enabled in debug settings."
+            return "Have a 2-3 minute AI-guided voice conversation. Answer naturally in your own words. The app transcribes your responses for wellness trend analysis; raw audio is not stored unless enabled in debug settings."
         }
     }
 

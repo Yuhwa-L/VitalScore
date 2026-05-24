@@ -15,6 +15,7 @@ final class VoiceAIConversationBuilderTests: XCTestCase {
         XCTAssertEqual(context.desiredConversationTurns, 4)
         XCTAssertTrue(context.missingInputs.contains("personal voice baseline"))
         XCTAssertTrue(context.requiredAcousticTasks.contains { $0.contains("2 to 3 minutes") })
+        XCTAssertFalse(context.requiredAcousticTasks.contains { $0.localizedCaseInsensitiveContains("ahh") })
         XCTAssertTrue(context.guardrails.contains("No medical diagnosis"))
     }
 
@@ -61,6 +62,58 @@ final class VoiceAIConversationBuilderTests: XCTestCase {
         XCTAssertEqual(plan.conversationTurns.count, 1)
         XCTAssertEqual(plan.conversationTurns[0].prompt, "Talk for one minute about what has shaped your energy and focus today.")
         XCTAssertEqual(plan.conversationTurns[0].targetDurationSeconds, 35)
+    }
+
+    func test_normalizedPlan_replacesUnsafeMedicalOpening() {
+        let context = VoiceAIConversationBuilder.makeContext(
+            experimentTag: "Untagged",
+            history: []
+        )
+        let remotePlan = VoiceAIConversationPlan(
+            planId: "remote",
+            promptTag: "remote_tag",
+            openingMessage: "Remote opening",
+            conversationTurns: [
+                VoiceAIConversationTurn(
+                    id: "remote_1",
+                    title: "Remote Free Talk",
+                    prompt: "You may have a clinical disorder. What treatment are you considering?",
+                    targetDurationSeconds: 22
+                )
+            ],
+            safetyNote: "Remote safety note",
+            source: "openai"
+        )
+
+        let plan = VoiceAIConversationBuilder.normalizedPlan(remotePlan, for: context)
+
+        XCTAssertEqual(plan.conversationTurns[0].prompt, VoiceAIConversationBuilder.fallbackFreeTalkPrompt)
+    }
+
+    func test_normalizedPlan_replacesFixedTaskExplanationOpening() {
+        let context = VoiceAIConversationBuilder.makeContext(
+            experimentTag: "Untagged",
+            history: []
+        )
+        let remotePlan = VoiceAIConversationPlan(
+            planId: "remote",
+            promptTag: "remote_tag",
+            openingMessage: "Remote opening",
+            conversationTurns: [
+                VoiceAIConversationTurn(
+                    id: "remote_1",
+                    title: "Remote Free Talk",
+                    prompt: "There are no ahh, counting, or reading prompts here. How is your energy?",
+                    targetDurationSeconds: 22
+                )
+            ],
+            safetyNote: "Remote safety note",
+            source: "openai"
+        )
+
+        let plan = VoiceAIConversationBuilder.normalizedPlan(remotePlan, for: context)
+
+        XCTAssertEqual(plan.conversationTurns[0].prompt, VoiceAIConversationBuilder.fallbackFreeTalkPrompt)
     }
 
     func test_tasks_forAdvancedTalkUseOnlyGuidedConversation() {
@@ -174,6 +227,47 @@ final class VoiceAIConversationBuilderTests: XCTestCase {
 
         XCTAssertTrue(normalized.shouldContinue)
         XCTAssertNotEqual(normalized.reply, repeated)
+        XCTAssertEqual(normalized.source, "local_personalized_fallback")
+    }
+
+    func test_normalizedChatReply_replacesUnsafeMedicalAdvice() {
+        let remote = VoiceAIChatTurnResponse(
+            reply: "This may be a clinical disorder. What treatment are you considering?",
+            shouldContinue: true,
+            source: "openai"
+        )
+
+        let normalized = VoiceAIConversationBuilder.normalizedChatReply(
+            remote,
+            turnIndex: 2,
+            maxTurns: 4,
+            latestUserTranscript: "I feel tired after poor sleep.",
+            history: []
+        )
+
+        XCTAssertTrue(normalized.shouldContinue)
+        XCTAssertNotEqual(normalized.reply, remote.reply)
+        XCTAssertEqual(normalized.source, "local_personalized_fallback")
+    }
+
+    func test_normalizedChatReply_replacesFixedTaskExplanation() {
+        let remote = VoiceAIChatTurnResponse(
+            reply: "There is no ahh or counting prompt here. What is affecting your focus?",
+            shouldContinue: true,
+            source: "openai"
+        )
+
+        let normalized = VoiceAIConversationBuilder.normalizedChatReply(
+            remote,
+            turnIndex: 2,
+            maxTurns: 4,
+            latestUserTranscript: "I feel tired after poor sleep.",
+            history: []
+        )
+
+        XCTAssertTrue(normalized.shouldContinue)
+        XCTAssertNotEqual(normalized.reply, remote.reply)
+        XCTAssertFalse(normalized.reply.localizedCaseInsensitiveContains("ahh"))
         XCTAssertEqual(normalized.source, "local_personalized_fallback")
     }
 
