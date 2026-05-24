@@ -34,10 +34,31 @@ struct VoiceTaskAnalysis: Codable, Equatable, Identifiable {
     let zeroCrossingRate: Double
     let voicedFrameRatio: Double
     let snrDb: Double?
+    let eGeMAPS: VoiceEGeMAPSFeatureSet?
     let qualityScore: Double
     let qualityIssues: [String]
     let usable: Bool
     let featureVersion: String
+}
+
+struct VoiceEGeMAPSFeatureSet: Codable, Equatable {
+    let loudnessMeanDb: Double
+    let loudnessStdDevDb: Double
+    let f0MeanHz: Double?
+    let f0StdDevHz: Double?
+    let jitterLocalPercent: Double?
+    let shimmerLocalDb: Double?
+    let hnrMeanDb: Double?
+    let alphaRatioDb: Double
+    let hammarbergIndexDb: Double
+    let spectralFlux: Double
+    let slopeV0: Double
+    let slopeUV0: Double
+    let mfcc1Mean: Double
+    let mfcc2Mean: Double
+    let mfcc3Mean: Double
+    let voicedSegmentsPerSecond: Double
+    let meanVoicedSegmentLengthSeconds: Double
 }
 
 struct VoiceTrackingResult: Codable, Equatable, Identifiable {
@@ -54,6 +75,7 @@ struct VoiceTrackingResult: Codable, Equatable, Identifiable {
     let usable: Bool
     let qualityIssues: [String]
     let taskAnalyses: [VoiceTaskAnalysis]
+    let eGeMAPS: VoiceEGeMAPSFeatureSet?
     let baselineSessionsUsed: Int
     let baselineStatus: String
     let topDrivers: [String]
@@ -74,6 +96,7 @@ struct VoiceTrackingResult: Codable, Equatable, Identifiable {
         usable: Bool = true,
         qualityIssues: [String] = [],
         taskAnalyses: [VoiceTaskAnalysis] = [],
+        eGeMAPS: VoiceEGeMAPSFeatureSet? = nil,
         baselineSessionsUsed: Int = 0,
         baselineStatus: String = "building_baseline",
         topDrivers: [String] = [],
@@ -93,6 +116,7 @@ struct VoiceTrackingResult: Codable, Equatable, Identifiable {
         self.usable = usable
         self.qualityIssues = qualityIssues
         self.taskAnalyses = taskAnalyses
+        self.eGeMAPS = eGeMAPS
         self.baselineSessionsUsed = baselineSessionsUsed
         self.baselineStatus = baselineStatus
         self.topDrivers = topDrivers
@@ -121,6 +145,7 @@ struct VoiceTrackingResult: Codable, Equatable, Identifiable {
             usable: usable,
             qualityIssues: qualityIssues,
             taskAnalyses: taskAnalyses,
+            eGeMAPS: eGeMAPS,
             baselineSessionsUsed: baselineSessionsUsed,
             baselineStatus: baselineStatus,
             topDrivers: topDrivers,

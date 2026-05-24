@@ -48,6 +48,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vitalscore.app.tests
+        GENERATE_INFOPLIST_FILE: YES
 
 schemes:
   VitalScore:

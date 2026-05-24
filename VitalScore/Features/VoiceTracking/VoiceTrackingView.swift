@@ -101,7 +101,9 @@ struct VoiceTrackingView: View {
                 }
             }
         case .finished(let result):
-            resultView(result)
+            ScrollView {
+                resultView(result)
+            }
         case .failed(let message):
             VStack(spacing: 16) {
                 Image(systemName: "mic.slash.fill")
@@ -137,30 +139,63 @@ struct VoiceTrackingView: View {
 
     private func resultView(_ result: VoiceTrackingResult) -> some View {
         let scoredResult = VoiceTrackingManager.score(result, against: previousSessions)
-        return VStack(spacing: 16) {
-            Text("Voice Score")
-                .font(.headline)
-                .foregroundColor(.secondary)
-            Text("\(Int(scoredResult.voiceScore))")
-                .font(.system(size: 72, weight: .bold))
-                .foregroundColor(scoreColor(scoredResult.voiceScore))
-            Text("Confidence: \(scoredResult.voiceConfidence)")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Quality: \(Int(scoredResult.overallQualityScore * 100))%")
-                Text("Average volume: \(Int(scoredResult.averageVolumeDb)) dB")
-                Text("Volume variability: \(String(format: "%.1f", scoredResult.volumeStdDevDb)) dB")
-                Text("Silence: \(Int(scoredResult.silenceRatio * 100))%")
-                Text("Peak volume: \(Int(scoredResult.peakVolumeDb)) dB")
-                Text("Baseline sessions: \(scoredResult.baselineSessionsUsed)")
-                ForEach(scoredResult.topDrivers, id: \.self) { driver in
-                    Text(driver)
+        return VStack(spacing: 14) {
+            VStack(spacing: 8) {
+                Text("Voice Score")
+                    .font(.headline)
+                    .foregroundColor(.secondary)
+                Text("\(Int(scoredResult.voiceScore))")
+                    .font(.system(size: 72, weight: .bold))
+                    .foregroundColor(scoreColor(scoredResult.voiceScore))
+                Text("\(scoredResult.voiceConfidence) confidence")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Capture Quality")
+                    .font(.headline)
+                HStack(spacing: 12) {
+                    resultMetric("Quality", "\(Int(scoredResult.overallQualityScore * 100))", "%")
+                    resultMetric("Silence", "\(Int(scoredResult.silenceRatio * 100))", "%")
+                    resultMetric("Baseline", "\(scoredResult.baselineSessionsUsed)", "")
+                }
+                HStack(spacing: 12) {
+                    resultMetric("Avg volume", "\(Int(scoredResult.averageVolumeDb))", "dB")
+                    resultMetric("Variability", String(format: "%.1f", scoredResult.volumeStdDevDb), "dB")
+                    resultMetric("Peak", "\(Int(scoredResult.peakVolumeDb))", "dB")
                 }
             }
-            .font(.caption)
-            .foregroundColor(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .resultPanel()
+
+            if let features = scoredResult.eGeMAPS {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("eGeMAPS Snapshot")
+                        .font(.headline)
+                    HStack(spacing: 12) {
+                        resultMetric("F0", format(features.f0MeanHz, digits: 0), "Hz")
+                        resultMetric("Jitter", format(features.jitterLocalPercent, digits: 2), "%")
+                        resultMetric("HNR", format(features.hnrMeanDb, digits: 1), "dB")
+                    }
+                    HStack(spacing: 12) {
+                        resultMetric("Shimmer", format(features.shimmerLocalDb, digits: 2), "dB")
+                        resultMetric("Flux", format(features.spectralFlux, digits: 3), "")
+                        resultMetric("Voiced", format(features.meanVoicedSegmentLengthSeconds, digits: 2), "s")
+                    }
+                }
+                .resultPanel()
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Drivers")
+                    .font(.headline)
+                ForEach(scoredResult.topDrivers, id: \.self) { driver in
+                    Text(driver)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .resultPanel()
 
             Button {
                 onFinished(manager.makeSessionMetadata(result: scoredResult, experimentTag: experimentTag))
@@ -176,9 +211,34 @@ struct VoiceTrackingView: View {
         }
     }
 
+    private func resultMetric(_ label: String, _ value: String?, _ unit: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+            Text((value ?? "--") + (unit.isEmpty ? "" : " \(unit)"))
+                .font(.caption.weight(.semibold))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func format(_ value: Double?, digits: Int) -> String? {
+        guard let value = value else { return nil }
+        return String(format: "%.\(digits)f", value)
+    }
+
     private func scoreColor(_ score: Double) -> Color {
         if score >= 75 { return .green }
         if score < 50 { return .orange }
         return .primary
+    }
+}
+
+private extension View {
+    func resultPanel() -> some View {
+        padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.secondarySystemBackground))
+            .cornerRadius(8)
     }
 }

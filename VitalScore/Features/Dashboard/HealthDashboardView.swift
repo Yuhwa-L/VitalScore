@@ -8,6 +8,7 @@ struct HealthDashboardView: View {
 
     @State private var showEyeFocusTest = false
     @State private var showVoiceTracking = false
+    @State private var showVoiceAnalysis = false
     @State private var lastWellnessResult: WellnessDeltaResult?
     @State private var showInsight = false
     @State private var seedMessage: String?
@@ -55,13 +56,7 @@ struct HealthDashboardView: View {
                         delta: nil,
                         unit: "kcal"
                     )
-                    MetricCard(
-                        title: "Voice Score",
-                        value: format(todayRecord?.voiceScore, digits: 0),
-                        baseline: format(baselineVoiceScore, digits: 0),
-                        delta: delta(todayRecord?.voiceScore, baselineVoiceScore),
-                        unit: ""
-                    )
+                    voiceTrackingPanel
                     MetricCard(
                         title: "Wellness Delta",
                         value: lastWellnessResult.map { ($0.score >= 0 ? "+" : "") + "\($0.score)" },
@@ -91,6 +86,18 @@ struct HealthDashboardView: View {
                             .padding()
                             .background(Color.teal)
                             .foregroundColor(.white)
+                            .cornerRadius(12)
+                    }
+
+                    Button {
+                        showVoiceAnalysis = true
+                    } label: {
+                        Label("Open Voice Analysis", systemImage: "chart.line.uptrend.xyaxis")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color(.secondarySystemBackground))
+                            .foregroundColor(.primary)
                             .cornerRadius(12)
                     }
 
@@ -160,6 +167,9 @@ struct HealthDashboardView: View {
                     onFinished: handleVoiceTrackingFinished
                 )
             }
+            .navigationDestination(isPresented: $showVoiceAnalysis) {
+                VoiceAnalysisDashboardView(sessions: storage.loadVoiceSessions())
+            }
             .navigationDestination(isPresented: $showInsight) {
                 if let result = lastWellnessResult {
                     InsightReportView(result: result)
@@ -184,6 +194,53 @@ struct HealthDashboardView: View {
         .cornerRadius(12)
     }
 
+    private var voiceTrackingPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Voice Tracking")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    Text(format(todayRecord?.voiceScore, digits: 0) ?? "Not Available")
+                        .font(.title2.weight(.semibold))
+                }
+                Spacer()
+                if let delta = delta(todayRecord?.voiceScore, baselineVoiceScore) {
+                    Text(delta >= 0 ? "↑" : "↓")
+                        .font(.headline)
+                        .foregroundColor(delta >= 0 ? .green : .red)
+                }
+            }
+
+            HStack(spacing: 10) {
+                voiceMiniMetric("Baseline", format(baselineVoiceScore, digits: 0), "")
+                voiceMiniMetric("Sessions", "\(storage.loadVoiceSessions().count)", "")
+                voiceMiniMetric("eGeMAPS", latestVoiceSession?.result.eGeMAPS == nil ? "Pending" : "Ready", "")
+            }
+
+            if let latest = latestVoiceSession {
+                Text("Latest: \(latest.result.voiceConfidence) confidence, \(latest.result.baselineStatus.replacingOccurrences(of: "_", with: " ")).")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(12)
+    }
+
+    private func voiceMiniMetric(_ label: String, _ value: String?, _ unit: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+            Text((value ?? "--") + (unit.isEmpty ? "" : " \(unit)"))
+                .font(.caption.weight(.medium))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private var baseline: BaselineMetrics {
         engine.buildBaseline(from: storage.loadAllRecords())
     }
@@ -200,6 +257,10 @@ struct HealthDashboardView: View {
                 .filter { $0.result.usable }
                 .compactMap { $0.result.voiceScore }
         )
+    }
+
+    private var latestVoiceSession: VoiceTrackingSession? {
+        storage.loadVoiceSessions().sorted { $0.date < $1.date }.last
     }
 
     private func handleEyeFocusFinished(_ result: EyeFocusTestResult) {
@@ -303,6 +364,7 @@ struct HealthDashboardView: View {
         )
         storage.saveRecord(record)
         showVoiceTracking = false
+        showVoiceAnalysis = true
     }
 
     private func refreshWellnessFromStorage() {
