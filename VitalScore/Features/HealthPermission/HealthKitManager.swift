@@ -1,7 +1,26 @@
 import Foundation
+import HealthKit
 
 @MainActor
 final class HealthKitManager: ObservableObject {
+    nonisolated static func isAsleepValue(_ rawValue: Int) -> Bool {
+        if #available(iOS 16.0, *) {
+            return rawValue == HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue
+                || rawValue == HKCategoryValueSleepAnalysis.asleepCore.rawValue
+                || rawValue == HKCategoryValueSleepAnalysis.asleepDeep.rawValue
+                || rawValue == HKCategoryValueSleepAnalysis.asleepREM.rawValue
+        } else {
+            return rawValue == HKCategoryValueSleepAnalysis.asleep.rawValue
+        }
+    }
+
+    nonisolated static func totalAsleepSeconds(from samples: [HKCategorySample]) -> Double {
+        samples.reduce(0.0) { acc, sample in
+            guard isAsleepValue(sample.value) else { return acc }
+            return acc + sample.endDate.timeIntervalSince(sample.startDate)
+        }
+    }
+
     @Published var isAuthorized = false
     @Published var hasRequestedAuthorization = false
     @Published var isFetching = false
