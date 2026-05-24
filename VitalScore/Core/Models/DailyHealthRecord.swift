@@ -17,6 +17,13 @@ struct DailyHealthRecord: Codable, Identifiable {
     let missedTargets: Int?
     let falseTaps: Int?
 
+    let gazeAccuracyPx: Double?
+    let gazeStabilityPx: Double?
+    let gazeFixationMs: Double?
+    let gazeBlinkRatePerMin: Double?
+    let gazeTrackingLossPct: Double?
+    let gazeScore: Double?
+
     let balanceScore: Double?
     let swayIndex: Double?
 
@@ -48,6 +55,12 @@ struct DailyHealthRecord: Codable, Identifiable {
         reactionStdDevMs: Double? = nil,
         missedTargets: Int? = nil,
         falseTaps: Int? = nil,
+        gazeAccuracyPx: Double? = nil,
+        gazeStabilityPx: Double? = nil,
+        gazeFixationMs: Double? = nil,
+        gazeBlinkRatePerMin: Double? = nil,
+        gazeTrackingLossPct: Double? = nil,
+        gazeScore: Double? = nil,
         balanceScore: Double? = nil,
         swayIndex: Double? = nil,
         voiceScore: Double? = nil,
@@ -75,6 +88,12 @@ struct DailyHealthRecord: Codable, Identifiable {
         self.reactionStdDevMs = reactionStdDevMs
         self.missedTargets = missedTargets
         self.falseTaps = falseTaps
+        self.gazeAccuracyPx = gazeAccuracyPx
+        self.gazeStabilityPx = gazeStabilityPx
+        self.gazeFixationMs = gazeFixationMs
+        self.gazeBlinkRatePerMin = gazeBlinkRatePerMin
+        self.gazeTrackingLossPct = gazeTrackingLossPct
+        self.gazeScore = gazeScore
         self.balanceScore = balanceScore
         self.swayIndex = swayIndex
         self.voiceScore = voiceScore
