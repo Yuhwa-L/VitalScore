@@ -6,6 +6,7 @@ struct EyeFocusAISummary: Codable, Equatable, Identifiable {
     let generatedAt: Date
     let model: String
     let sourceLogFileName: String?
+    let experimentTag: String?
     let overallSummary: String
     let confidence: String?
     let sections: [EyeFocusAISummarySection]
@@ -16,6 +17,7 @@ struct EyeFocusAISummary: Codable, Equatable, Identifiable {
         generatedAt: Date = Date(),
         model: String,
         sourceLogFileName: String?,
+        experimentTag: String? = nil,
         overallSummary: String,
         confidence: String? = nil,
         sections: [EyeFocusAISummarySection]
@@ -25,6 +27,7 @@ struct EyeFocusAISummary: Codable, Equatable, Identifiable {
         self.generatedAt = generatedAt
         self.model = model
         self.sourceLogFileName = sourceLogFileName
+        self.experimentTag = experimentTag.map { ExperimentTagValue.normalized($0) }
         self.overallSummary = overallSummary
         self.confidence = confidence
         self.sections = sections

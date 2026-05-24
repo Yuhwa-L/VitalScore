@@ -13,6 +13,10 @@ struct HealthDashboardView: View {
     @State private var lastWellnessResult: WellnessDeltaResult?
     @State private var showSettings = false
     @State private var showEyeFocusLogs = false
+    @State private var selectedTagFilter: String?
+    @State private var useCustomPeriod = false
+    @State private var periodStartDate = Calendar.current.date(byAdding: .day, value: -6, to: Date()) ?? Date()
+    @State private var periodEndDate = Date()
 
     private let engine = WellnessScoreEngine()
     private let healthColumns = [
@@ -25,6 +29,7 @@ struct HealthDashboardView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
+                    dashboardFilterControls
                     wellnessScoreCard
                     healthMetricGrid
                     trackingActionsRow
@@ -54,6 +59,18 @@ struct HealthDashboardView: View {
                 syncHealthValuesFromLatestStoredRecord()
                 refreshWellnessFromStorage()
             }
+            .onChange(of: selectedTagFilter) { _, _ in
+                refreshForFilterChange()
+            }
+            .onChange(of: useCustomPeriod) { _, _ in
+                refreshForFilterChange()
+            }
+            .onChange(of: periodStartDate) { _, _ in
+                refreshForFilterChange()
+            }
+            .onChange(of: periodEndDate) { _, _ in
+                refreshForFilterChange()
+            }
             .overlay(alignment: .top) {
                 if healthKit.isFetching {
                     ProgressView().padding(8)
@@ -81,33 +98,97 @@ struct HealthDashboardView: View {
                 SettingsView()
             }
             .sheet(isPresented: $showEyeFocusLogs) {
-                EyeFocusLogsView()
+                EyeFocusLogsView(tagFilter: selectedTagFilter, dateInterval: selectedDateInterval)
                     .environmentObject(storage)
             }
             .sheet(isPresented: $showWellnessHistory) {
                 NavigationStack {
                     WellnessHistoryView(
-                        records: storage.loadAllRecords(),
+                        records: filteredRecords,
                         latestResult: latestWellnessResult
                     )
                 }
             }
             .navigationDestination(isPresented: $showEyeFocusTest) {
-                EyeFocusTestView(onFinished: handleEyeFocusFinished)
+                EyeFocusTestView(experimentTag: trackingTag, onFinished: handleEyeFocusFinished)
             }
             .navigationDestination(isPresented: $showAdvancedVoiceTracking) {
                 VoiceTrackingView(
                     mode: .advancedFreestyle,
-                    previousSessions: storage.loadVoiceSessions(),
+                    previousSessions: storage.loadVoiceSessions(tagFilter: trackingTag),
                     experimentTag: trackingTag,
                     onAnalysisRequested: scoreCompletedVoiceSessionWithAPI,
                     onFinished: finishVoiceTrackingFlow
                 )
             }
             .navigationDestination(isPresented: $showVoiceAnalysis) {
-                VoiceAnalysisDashboardView(sessions: storage.loadVoiceSessions())
+                VoiceAnalysisDashboardView(sessions: filteredVoiceSessions)
             }
         }
+    }
+
+    private var dashboardFilterControls: some View {
+        VStack(spacing: 10) {
+            tagFilterControl
+            periodFilterControl
+        }
+    }
+
+    private var tagFilterControl: some View {
+        HStack(spacing: 10) {
+            Label("Data tag", systemImage: "tag")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            Spacer()
+
+            Picker("Data tag", selection: $selectedTagFilter) {
+                Text(ExperimentTagValue.allTagsLabel).tag(String?.none)
+                ForEach(availableDashboardTags, id: \.self) { tag in
+                    Text(tag).tag(String?.some(tag))
+                }
+            }
+            .pickerStyle(.menu)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(8)
+    }
+
+    private var periodFilterControl: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Label("Period", systemImage: "calendar")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                Text(periodSummaryText)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+
+                Toggle("Custom", isOn: $useCustomPeriod)
+                    .font(.subheadline)
+                    .toggleStyle(.switch)
+                    .fixedSize()
+            }
+
+            if useCustomPeriod {
+                Divider()
+                DatePicker("Start", selection: $periodStartDate, displayedComponents: .date)
+                    .datePickerStyle(.compact)
+                DatePicker("End", selection: $periodEndDate, displayedComponents: .date)
+                    .datePickerStyle(.compact)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(8)
     }
 
     private var wellnessScoreCard: some View {
@@ -183,7 +264,7 @@ struct HealthDashboardView: View {
                 title: "Eye Analysis",
                 systemImage: "eye.circle",
                 tint: .indigo,
-                primaryValue: format(todayRecord?.eyeFocusScore, digits: 0) ?? "--",
+                primaryValue: format(latestDisplayRecord?.eyeFocusScore, digits: 0) ?? "--",
                 primaryUnit: "score",
                 details: eyeAnalysisDetails,
                 action: { showEyeFocusLogs = true }
@@ -227,65 +308,47 @@ struct HealthDashboardView: View {
     private var healthMetrics: [HealthMetricTileData] {
         [
             HealthMetricTileData(
-                title: "Sleep",
-                value: format(healthKit.lastNightSleepHours, digits: 1),
-                unit: "h",
-                baseline: format(baseline.averageSleepHours, digits: 1),
-                delta: delta(healthKit.lastNightSleepHours, baseline.averageSleepHours),
-                systemImage: "bed.double.fill",
-                tint: .blue
-            ),
-            HealthMetricTileData(
                 title: "Resting HR",
-                value: format(healthKit.latestRestingHeartRate, digits: 0),
+                value: format(displayRestingHeartRate, digits: 0),
                 unit: "bpm",
                 baseline: format(baseline.averageRestingHeartRateBPM, digits: 0),
-                delta: delta(healthKit.latestRestingHeartRate, baseline.averageRestingHeartRateBPM, inverted: true),
+                delta: delta(displayRestingHeartRate, baseline.averageRestingHeartRateBPM, inverted: true),
                 systemImage: "heart.fill",
                 tint: .red
             ),
             HealthMetricTileData(
                 title: "HRV",
-                value: format(healthKit.latestHRV, digits: 0),
+                value: format(displayHRV, digits: 0),
                 unit: "ms",
                 baseline: format(baseline.averageHRVMs, digits: 0),
-                delta: delta(healthKit.latestHRV, baseline.averageHRVMs),
+                delta: delta(displayHRV, baseline.averageHRVMs),
                 systemImage: "waveform.path",
                 tint: .purple
             ),
             HealthMetricTileData(
                 title: "Steps",
-                value: format(healthKit.todaySteps, digits: 0),
+                value: format(displaySteps, digits: 0),
                 unit: "",
                 baseline: format(baseline.averageStepCount, digits: 0),
-                delta: delta(healthKit.todaySteps, baseline.averageStepCount),
+                delta: delta(displaySteps, baseline.averageStepCount),
                 systemImage: "figure.walk",
                 tint: .green
-            ),
-            HealthMetricTileData(
-                title: "Energy",
-                value: format(healthKit.todayActiveEnergy, digits: 0),
-                unit: "kcal",
-                baseline: nil,
-                delta: nil,
-                systemImage: "flame.fill",
-                tint: .orange
             )
         ]
     }
 
     private var eyeAnalysisDetails: [String] {
-        let record = todayRecord
+        let record = latestDisplayRecord
         return [
             detailText("Gaze", value: format(record?.gazeScore, digits: 0), unit: ""),
-            storage.latestEyeFocusSummary()?.overallSummary
+            storage.latestEyeFocusSummary(tagFilter: selectedTagFilter, dateInterval: selectedDateInterval)?.overallSummary
                 ?? detailText("Reaction", value: format(record?.averageReactionMs, digits: 0), unit: "ms")
         ]
     }
 
     private var voiceAnalysisDetails: [String] {
         [
-            detailText("Sessions", value: "\(storage.loadVoiceSessions().count)", unit: ""),
+            detailText("Sessions", value: "\(filteredVoiceSessions.count)", unit: ""),
             latestVoiceSession?.result.eGeMAPS == nil ? "eGeMAPS pending" : "eGeMAPS ready"
         ]
     }
@@ -305,7 +368,7 @@ struct HealthDashboardView: View {
     }
 
     private var latestWellnessRecord: DailyHealthRecord? {
-        storage.loadAllRecords()
+        filteredRecords
             .filter { !$0.insightText.isEmpty || $0.wellnessDeltaScore != 0 }
             .sorted { $0.date < $1.date }
             .last
@@ -329,20 +392,84 @@ struct HealthDashboardView: View {
     }
 
     private var baseline: BaselineMetrics {
-        engine.buildBaseline(from: storage.loadAllRecords())
+        engine.buildBaseline(from: filteredRecords)
     }
 
-    private var todayRecord: DailyHealthRecord? {
-        storage.loadAllRecords()
-            .first(where: { Calendar.current.isDateInToday($0.date) })
+    private var latestDisplayRecord: DailyHealthRecord? {
+        filteredRecords
+            .sorted { $0.date < $1.date }
+            .last
+    }
+
+    private var isDashboardFiltered: Bool {
+        selectedTagFilter != nil || useCustomPeriod
+    }
+
+    private var displayRestingHeartRate: Double? {
+        isDashboardFiltered ? latestDisplayRecord?.restingHeartRateBPM : healthKit.latestRestingHeartRate
+    }
+
+    private var displayHRV: Double? {
+        isDashboardFiltered ? latestDisplayRecord?.hrvMs : healthKit.latestHRV
+    }
+
+    private var displaySteps: Double? {
+        isDashboardFiltered ? latestDisplayRecord?.stepCount : healthKit.todaySteps
+    }
+
+    private var selectedDateInterval: DateInterval? {
+        guard useCustomPeriod else { return nil }
+        let bounds = normalizedPeriodBounds
+        let start = Calendar.current.startOfDay(for: bounds.start)
+        let endDay = Calendar.current.startOfDay(for: bounds.end)
+        let end = Calendar.current.date(byAdding: .day, value: 1, to: endDay) ?? endDay.addingTimeInterval(86_400)
+        return DateInterval(start: start, end: end)
+    }
+
+    private var normalizedPeriodBounds: (start: Date, end: Date) {
+        periodStartDate <= periodEndDate
+            ? (periodStartDate, periodEndDate)
+            : (periodEndDate, periodStartDate)
+    }
+
+    private var periodSummaryText: String {
+        guard useCustomPeriod else { return "All time" }
+        let bounds = normalizedPeriodBounds
+        return "\(shortDate(bounds.start)) - \(shortDate(bounds.end))"
     }
 
     private var trackingTag: String {
-        experiments.current == nil ? "Untagged" : experiments.displayName
+        ExperimentTagValue.normalized(experiments.current == nil ? nil : experiments.displayName)
+    }
+
+    private var availableDashboardTags: [String] {
+        storage.availableExperimentTags(extraTags: [trackingTag])
+    }
+
+    private var filteredRecords: [DailyHealthRecord] {
+        storage.loadAllRecords(tagFilter: selectedTagFilter, dateInterval: selectedDateInterval)
+    }
+
+    private var filteredVoiceSessions: [VoiceTrackingSession] {
+        storage.loadVoiceSessions(tagFilter: selectedTagFilter, dateInterval: selectedDateInterval)
+    }
+
+    private var trackingTodayRecord: DailyHealthRecord? {
+        recordForToday(tagFilter: trackingTag)
     }
 
     private var latestVoiceSession: VoiceTrackingSession? {
-        storage.loadVoiceSessions().sorted { $0.date < $1.date }.last
+        filteredVoiceSessions.sorted { $0.date < $1.date }.last
+    }
+
+    private func recordForToday(tagFilter: String?) -> DailyHealthRecord? {
+        storage.loadAllRecords(tagFilter: tagFilter)
+            .sorted { $0.date < $1.date }
+            .last(where: { Calendar.current.isDateInToday($0.date) })
+    }
+
+    private func baseline(for tagFilter: String?) -> BaselineMetrics {
+        engine.buildBaseline(from: storage.loadAllRecords(tagFilter: tagFilter))
     }
 
     private func handleEyeFocusFinished(_ result: EyeFocusTestResult) {
@@ -350,12 +477,12 @@ struct HealthDashboardView: View {
             storage.saveEyeFocusSummary(summary)
         }
 
-        let baselineNow = baseline
-        let existingRecord = todayRecord
+        let baselineNow = baseline(for: trackingTag)
+        let existingRecord = trackingTodayRecord
         let todayRecord = DailyHealthRecord(
             id: existingRecord?.id ?? UUID(),
             date: existingRecord?.date ?? Date(),
-            experimentTag: existingRecord?.experimentTag ?? trackingTag,
+            experimentTag: trackingTag,
             sleepHours: existingRecord?.sleepHours ?? healthKit.lastNightSleepHours,
             restingHeartRateBPM: existingRecord?.restingHeartRateBPM ?? healthKit.latestRestingHeartRate,
             hrvMs: existingRecord?.hrvMs ?? healthKit.latestHRV,
@@ -403,9 +530,13 @@ struct HealthDashboardView: View {
         }
 
         let shouldPersistAnalysis = !session.containsLocallySavedLiveData
-        let analysisExport = MultimodalAnalysisExport.voice(session: session, dailyRecord: todayRecord)
-        let recentSessions = storage.loadVoiceSessions()
-        let recentRecords = storage.loadAllRecords()
+        let sessionTag = ExperimentTagValue.normalized(session.experimentTag)
+        let analysisExport = MultimodalAnalysisExport.voice(
+            session: session,
+            dailyRecord: recordForToday(tagFilter: sessionTag)
+        )
+        let recentSessions = storage.loadVoiceSessions(tagFilter: sessionTag)
+        let recentRecords = storage.loadAllRecords(tagFilter: sessionTag)
         do {
             let analysis = try await AIConversationClient().analyzeVoiceExport(
                 analysisExport,
@@ -467,11 +598,12 @@ struct HealthDashboardView: View {
         let updatedSession = session.replacingResult(updatedResult)
         storage.saveVoiceSession(updatedSession)
 
-        let existing = todayRecord
+        let sessionTag = ExperimentTagValue.normalized(session.experimentTag)
+        let existing = recordForToday(tagFilter: sessionTag)
         let updatedRecord = DailyHealthRecord(
             id: existing?.id ?? UUID(),
             date: existing?.date ?? Date(),
-            experimentTag: existing?.experimentTag ?? trackingTag,
+            experimentTag: sessionTag,
             sleepHours: existing?.sleepHours ?? healthKit.lastNightSleepHours,
             restingHeartRateBPM: existing?.restingHeartRateBPM ?? healthKit.latestRestingHeartRate,
             hrvMs: existing?.hrvMs ?? healthKit.latestHRV,
@@ -502,7 +634,7 @@ struct HealthDashboardView: View {
             confidenceLevel: existing?.confidenceLevel ?? "Low",
             insightText: existing?.insightText ?? ""
         )
-        _ = saveRecordWithWellness(updatedRecord, baseline: baseline)
+        _ = saveRecordWithWellness(updatedRecord, baseline: baseline(for: sessionTag))
     }
 
     private func localVoiceAnalysisFallback(
@@ -524,15 +656,16 @@ struct HealthDashboardView: View {
 
     @discardableResult
     private func persistVoiceTrackingSession(_ session: VoiceTrackingSession) -> URL? {
-        let existing = todayRecord
         let scrubbedSession = session.removingLocallySavedLiveData()
+        let sessionTag = ExperimentTagValue.normalized(scrubbedSession.experimentTag)
+        let existing = recordForToday(tagFilter: sessionTag)
         let result = scrubbedSession.result
         storage.saveVoiceSession(scrubbedSession)
 
         let record = DailyHealthRecord(
             id: existing?.id ?? UUID(),
             date: existing?.date ?? Date(),
-            experimentTag: existing?.experimentTag ?? trackingTag,
+            experimentTag: sessionTag,
             sleepHours: existing?.sleepHours ?? healthKit.lastNightSleepHours,
             restingHeartRateBPM: existing?.restingHeartRateBPM ?? healthKit.latestRestingHeartRate,
             hrvMs: existing?.hrvMs ?? healthKit.latestHRV,
@@ -563,7 +696,7 @@ struct HealthDashboardView: View {
             confidenceLevel: existing?.confidenceLevel ?? "Low",
             insightText: existing?.insightText ?? ""
         )
-        let finalRecord = saveRecordWithWellness(record, baseline: baseline)
+        let finalRecord = saveRecordWithWellness(record, baseline: baseline(for: sessionTag))
         return storage.writeVoiceAnalysisExport(session: scrubbedSession, dailyRecord: finalRecord)
     }
 
@@ -609,12 +742,19 @@ struct HealthDashboardView: View {
             insightText: computed.insightText
         )
         storage.saveRecord(finalRecord)
-        lastWellnessResult = computed
+        if matchesDashboardFilters(finalRecord) {
+            lastWellnessResult = computed
+        } else {
+            refreshWellnessFromStorage()
+        }
         return finalRecord
     }
 
     private func refreshWellnessFromStorage() {
-        guard let record = latestWellnessRecord else { return }
+        guard let record = latestWellnessRecord else {
+            lastWellnessResult = nil
+            return
+        }
         lastWellnessResult = WellnessDeltaResult(
             score: record.wellnessDeltaScore,
             confidence: record.confidenceLevel,
@@ -624,9 +764,24 @@ struct HealthDashboardView: View {
         )
     }
 
+    private func refreshForFilterChange() {
+        syncHealthValuesFromLatestStoredRecord()
+        refreshWellnessFromStorage()
+    }
+
     private func syncHealthValuesFromLatestStoredRecord() {
-        guard let record = storage.loadAllRecords().sorted(by: { $0.date < $1.date }).last else { return }
+        guard let record = filteredRecords.sorted(by: { $0.date < $1.date }).last else { return }
         healthKit.applyMockRecord(record)
+    }
+
+    private func matchesDashboardFilters(_ record: DailyHealthRecord) -> Bool {
+        ExperimentTagValue.matches(record.experimentTag, filter: selectedTagFilter) &&
+        matchesSelectedPeriod(record.date)
+    }
+
+    private func matchesSelectedPeriod(_ date: Date) -> Bool {
+        guard let interval = selectedDateInterval else { return true }
+        return date >= interval.start && date < interval.end
     }
 
     private func detailText(_ label: String, value: String?, unit: String) -> String {
@@ -637,6 +792,10 @@ struct HealthDashboardView: View {
     private func format(_ value: Double?, digits: Int) -> String? {
         guard let value else { return nil }
         return String(format: "%.\(digits)f", value)
+    }
+
+    private func shortDate(_ date: Date) -> String {
+        date.formatted(.dateTime.month(.abbreviated).day())
     }
 
     private func delta(_ current: Double?, _ base: Double?, inverted: Bool = false) -> Double? {

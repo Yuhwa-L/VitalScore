@@ -88,6 +88,7 @@ final class EyeFocusTestManager: ObservableObject {
     private var calibrationRecords: [CalibrationRecord] = []
     private var calibrationTransform: CalibrationTransform = .identity
     private var calibrationResidual: Double = 0
+    private var experimentTag: String = ExperimentTagValue.untagged
     private var adaptiveBias: CGVector = .zero
     private var lastSignificantMotionAt: Date = .distantPast
     private var lastAcceptedGazePoint: CGPoint?
@@ -106,6 +107,10 @@ final class EyeFocusTestManager: ObservableObject {
     private var countdownTimer: Timer?
     private var endTimer: Timer?
     private var calibrationTimer: Timer?
+
+    func setExperimentTag(_ tag: String) {
+        experimentTag = ExperimentTagValue.normalized(tag)
+    }
 
     init() {
         let backend = GazeBackend.detect()
@@ -531,6 +536,7 @@ final class EyeFocusTestManager: ObservableObject {
         let availSnapshot = gazeAvailable
         let screenSnapshot = screenSize
         let durationSnapshot = Self.testDurationSeconds
+        let experimentTagSnapshot = experimentTag
 
         Task.detached(priority: .userInitiated) { [weak self] in
             let reactionTimes = hitsSnapshot.map { $0.tapDelayMs }
@@ -587,6 +593,7 @@ final class EyeFocusTestManager: ObservableObject {
                     durationSeconds: durationSnapshot,
                     calibration: summary,
                     screenSize: screenSnapshot,
+                    experimentTag: experimentTagSnapshot,
                     reaction: reactionLog
                 )
             }

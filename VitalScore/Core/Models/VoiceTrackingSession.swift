@@ -47,7 +47,7 @@ struct VoiceTrackingSession: Codable, Identifiable, Equatable {
     ) {
         self.id = id
         self.date = date
-        self.experimentTag = experimentTag
+        self.experimentTag = ExperimentTagValue.normalized(experimentTag)
         self.promptTag = promptTag
         self.language = language
         self.promptVersion = promptVersion

@@ -22,26 +22,39 @@ final class LocalStorageManager: ObservableObject {
         self.documentsDirectoryOverride = documentsDirectory
     }
 
+    private static func matches(_ date: Date, dateInterval: DateInterval?) -> Bool {
+        guard let dateInterval else { return true }
+        return date >= dateInterval.start && date < dateInterval.end
+    }
+
     func saveRecord(_ record: DailyHealthRecord) {
         var existing = loadAllRecords()
-        existing.removeAll { Calendar.current.isDate($0.date, inSameDayAs: record.date) }
+        existing.removeAll {
+            Calendar.current.isDate($0.date, inSameDayAs: record.date) &&
+            ExperimentTagValue.matches($0.experimentTag, filter: record.experimentTag)
+        }
         existing.append(record)
+        existing.sort { $0.date < $1.date }
         if let data = try? JSONEncoder().encode(existing) {
             defaults.set(data, forKey: Self.recordsKey)
             revision += 1
         }
     }
 
-    func loadAllRecords() -> [DailyHealthRecord] {
+    func loadAllRecords(tagFilter: String? = nil, dateInterval: DateInterval? = nil) -> [DailyHealthRecord] {
         guard let data = defaults.data(forKey: Self.recordsKey) else { return [] }
-        return (try? JSONDecoder().decode([DailyHealthRecord].self, from: data)) ?? []
+        let decoded = (try? JSONDecoder().decode([DailyHealthRecord].self, from: data)) ?? []
+        return decoded.filter {
+            ExperimentTagValue.matches($0.experimentTag, filter: tagFilter) &&
+            Self.matches($0.date, dateInterval: dateInterval)
+        }
     }
 
-    func recordsInWindow(days: Int, asOf reference: Date = Date()) -> [DailyHealthRecord] {
+    func recordsInWindow(days: Int, asOf reference: Date = Date(), tagFilter: String? = nil) -> [DailyHealthRecord] {
         guard let cutoff = Calendar.current.date(byAdding: .day, value: -days, to: reference) else {
             return []
         }
-        return loadAllRecords().filter { $0.date >= cutoff && $0.date < reference }
+        return loadAllRecords(tagFilter: tagFilter).filter { $0.date >= cutoff && $0.date < reference }
     }
 
     func saveVoiceSession(_ session: VoiceTrackingSession) {
@@ -60,7 +73,7 @@ final class LocalStorageManager: ObservableObject {
         }
     }
 
-    func loadVoiceSessions() -> [VoiceTrackingSession] {
+    func loadVoiceSessions(tagFilter: String? = nil, dateInterval: DateInterval? = nil) -> [VoiceTrackingSession] {
         guard let data = defaults.data(forKey: Self.voiceSessionsKey) else { return [] }
         let decoded = (try? JSONDecoder().decode([VoiceTrackingSession].self, from: data)) ?? []
         let now = Date()
@@ -70,14 +83,17 @@ final class LocalStorageManager: ObservableObject {
            let data = try? JSONEncoder().encode(cleaned) {
             defaults.set(data, forKey: Self.voiceSessionsKey)
         }
-        return cleaned
+        return cleaned.filter {
+            ExperimentTagValue.matches($0.experimentTag, filter: tagFilter) &&
+            Self.matches($0.date, dateInterval: dateInterval)
+        }
     }
 
-    func voiceSessionsInWindow(days: Int, asOf reference: Date = Date()) -> [VoiceTrackingSession] {
+    func voiceSessionsInWindow(days: Int, asOf reference: Date = Date(), tagFilter: String? = nil) -> [VoiceTrackingSession] {
         guard let cutoff = Calendar.current.date(byAdding: .day, value: -days, to: reference) else {
             return []
         }
-        return loadVoiceSessions().filter { $0.date >= cutoff && $0.date < reference }
+        return loadVoiceSessions(tagFilter: tagFilter).filter { $0.date >= cutoff && $0.date < reference }
     }
 
     func saveEyeFocusSummary(_ summary: EyeFocusAISummary) {
@@ -91,13 +107,28 @@ final class LocalStorageManager: ObservableObject {
         }
     }
 
-    func loadEyeFocusSummaries() -> [EyeFocusAISummary] {
+    func loadEyeFocusSummaries(tagFilter: String? = nil, dateInterval: DateInterval? = nil) -> [EyeFocusAISummary] {
         guard let data = defaults.data(forKey: Self.eyeFocusSummariesKey) else { return [] }
-        return (try? JSONDecoder().decode([EyeFocusAISummary].self, from: data)) ?? []
+        let decoded = (try? JSONDecoder().decode([EyeFocusAISummary].self, from: data)) ?? []
+        return decoded.filter {
+            ExperimentTagValue.matches($0.experimentTag, filter: tagFilter) &&
+            Self.matches($0.resultCompletedAt, dateInterval: dateInterval)
+        }
     }
 
-    func latestEyeFocusSummary() -> EyeFocusAISummary? {
-        loadEyeFocusSummaries().sorted { $0.generatedAt < $1.generatedAt }.last
+    func latestEyeFocusSummary(tagFilter: String? = nil, dateInterval: DateInterval? = nil) -> EyeFocusAISummary? {
+        loadEyeFocusSummaries(tagFilter: tagFilter, dateInterval: dateInterval)
+            .sorted { $0.resultCompletedAt < $1.resultCompletedAt }
+            .last
+    }
+
+    func availableExperimentTags(extraTags: [String] = []) -> [String] {
+        let tags = loadAllRecords().map(\.experimentTag) +
+            loadVoiceSessions().map(\.experimentTag) +
+            loadEyeFocusSummaries().map { ExperimentTagValue.normalized($0.experimentTag) } +
+            extraTags
+        return Array(Set(tags.map { ExperimentTagValue.normalized($0) }))
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
     func removeEyeFocusSummaries(forFileNames names: Set<String>) {

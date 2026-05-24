@@ -7,7 +7,6 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var showResetConfirm = false
-    @State private var mockDataMessage: String?
     #if DEBUG
     @AppStorage(VoiceRawAudioDebugExportSettings.userDefaultsKey) private var rawWavExportEnabled = false
     @AppStorage(VoiceRawAudioDebugExportSettings.aiUploadUserDefaultsKey) private var rawWavAIUploadEnabled = false
@@ -20,32 +19,6 @@ struct SettingsView: View {
                     LabeledContent("Apple ID", value: "Mock User")
                     LabeledContent("Onboarded", value: storage.hasCompletedOnboarding ? "Yes" : "No")
                     LabeledContent("Health Connected", value: healthKit.isAuthorized ? "Yes" : "No")
-                }
-
-                Section("Mock Data (Debug)") {
-                    Button {
-                        healthKit.generateRandom()
-                    } label: {
-                        Label("Generate Random Data", systemImage: "shuffle")
-                    }
-                    Button {
-                        Task { await healthKit.fetchAllLatest() }
-                    } label: {
-                        Label("Reload from JSON Seed", systemImage: "arrow.clockwise")
-                    }
-                    Button {
-                        loadWellnessDemoData()
-                    } label: {
-                        Label("Load 7-Day Wellness Demo", systemImage: "chart.line.uptrend.xyaxis")
-                    }
-                    if let lastFetched = healthKit.lastFetchedAt {
-                        LabeledContent("Last refresh", value: lastFetched.formatted(date: .omitted, time: .standard))
-                    }
-                    if let mockDataMessage {
-                        Text(mockDataMessage)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
                 }
 
                 #if DEBUG
@@ -113,18 +86,6 @@ struct SettingsView: View {
         }
     }
 
-    private func loadWellnessDemoData() {
-        do {
-            let result = try storage.loadWellnessDemoFixture()
-            experiments.select(.morningSunlight)
-            if let latestRecord = result.latestRecord {
-                healthKit.applyMockRecord(latestRecord)
-            }
-            mockDataMessage = "Loaded \(result.recordsImported) days and \(result.voiceSessionsImported) voice sessions. Wellness scores were recalculated from the demo data."
-        } catch {
-            mockDataMessage = error.localizedDescription
-        }
-    }
 }
 
 extension Bundle {

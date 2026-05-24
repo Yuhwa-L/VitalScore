@@ -10,8 +10,7 @@ struct HealthPermissionView: View {
         ("Sleep", "Sleep duration trend."),
         ("Resting Heart Rate", "Recovery and stress trend marker."),
         ("Heart Rate Variability", "Recovery and autonomic marker."),
-        ("Steps", "Daily activity context."),
-        ("Active Energy", "Activity intensity context.")
+        ("Steps", "Daily activity context.")
     ]
 
     var body: some View {
@@ -218,7 +217,6 @@ private struct MockHealthAuthorizationSheet: View {
         case "Resting Heart Rate": return "heart.fill"
         case "Heart Rate Variability": return "waveform.path.ecg"
         case "Steps": return "figure.walk"
-        case "Active Energy": return "flame.fill"
         default: return "heart.fill"
         }
     }
@@ -228,7 +226,6 @@ private struct MockHealthAuthorizationSheet: View {
         case "Sleep": return .indigo
         case "Resting Heart Rate", "Heart Rate Variability": return .red
         case "Steps": return .orange
-        case "Active Energy": return .pink
         default: return .red
         }
     }

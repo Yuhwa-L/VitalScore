@@ -55,22 +55,22 @@ struct OpenAIEyeFocusSummaryClient {
     - If metrics conflict, explain the uncertainty briefly.
     - Keep wording neutral and calm.
 
-    Analyze these areas:
-    1. Reaction — Summarize reaction speed, consistency, missed targets, and false taps.
-    2. Gaze accuracy — Summarize how close the gaze estimate was to the target.
-    3. Gaze stability — Summarize whether the gaze signal looked steady or jumpy.
-    4. Tracking quality — Summarize sample count, tracking loss, blink rate, and whether the camera/face tracking seemed reliable.
-    5. Calibration — Summarize whether calibration quality supports trusting the result.
-    6. Practical note — Give one short suggestion for improving the next test, such as holding the phone steady, keeping the face centered, improving lighting, or recalibrating carefully.
+    Return exactly these section titles in this order:
+    1. Performance — Summarize reaction speed, consistency, missed targets, and false taps.
+    2. Gaze Control — Summarize gaze accuracy, stability, fixation, and target following.
+    3. Signal Quality — Summarize sample count, tracking loss, blink rate, calibration, lighting/face tracking reliability, and whether the score is trustworthy.
+    4. What Changed — If comparison history is unavailable, explain the most important current strengths or weak points instead of inventing a trend.
+    5. Next Test Tip — Give one short suggestion for improving the next test, such as holding the phone steady, keeping the face centered, improving lighting, or recalibrating carefully.
 
     Output requirements:
     - Return only valid JSON matching the provided schema.
     - Do not include markdown.
     - Do not include raw data.
     - Keep the overall summary under 35 words.
-    - Keep each section summary under 22 words.
+    - Keep each section summary under 28 words.
     - Use simple language suitable for a normal app user.
     - If a particular signal was not captured (e.g., reaction data missing in a re-analysis), state that briefly in that section.
+    - Include concrete metric references when they help the user understand the report, but do not overload the text with numbers.
     """
 
     init(session: URLSession = .shared, bundle: Bundle = .main) {
@@ -109,6 +109,9 @@ struct OpenAIEyeFocusSummaryClient {
         guard let logJSON = String(data: logData, encoding: .utf8) else {
             throw OpenAIEyeFocusSummaryError.invalidLogEncoding
         }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let parsedLog = try? decoder.decode(GazeLogFile.self, from: rawData)
 
         let model = bundle.openAIModel
         var request = URLRequest(url: endpoint)
@@ -142,6 +145,7 @@ struct OpenAIEyeFocusSummaryClient {
             resultCompletedAt: resultCompletedAt,
             model: model,
             sourceLogFileName: logFileURL.lastPathComponent,
+            experimentTag: parsedLog?.experimentTag,
             overallSummary: aiResponse.overallSummary,
             confidence: aiResponse.confidence,
             sections: aiResponse.sections.map {
@@ -209,6 +213,7 @@ struct OpenAIEyeFocusSummaryClient {
         let kept = bestSamplesPerBucket(file.samples, bucketCount: maxSamplesToSend)
 
         let reduced = GazeLogFile(
+            experimentTag: file.experimentTag,
             backend: file.backend,
             startedAt: file.startedAt,
             testStartedAt: file.testStartedAt,

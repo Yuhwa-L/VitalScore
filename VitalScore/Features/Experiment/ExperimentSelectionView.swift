@@ -6,7 +6,7 @@ struct ExperimentSelectionView: View {
     let onSelected: () -> Void
 
     private let presetTags: [ExperimentTag] = [
-        .noAlcohol, .magnesium, .lessCaffeine, .sleepSchedule,
+        .gym, .alcohol, .noAlcohol, .magnesium, .lessCaffeine, .sleepSchedule,
         .morningSunlight, .exercise, .meditation
     ]
 

@@ -69,12 +69,72 @@ final class LocalStorageManagerTests: XCTestCase {
     func test_savingSameDayTwice_overwrites() {
         let date = Date()
         let r1 = DailyHealthRecord(date: date, experimentTag: "A", wellnessDeltaScore: 1, confidenceLevel: "Low", insightText: "")
-        let r2 = DailyHealthRecord(date: date, experimentTag: "B", wellnessDeltaScore: 2, confidenceLevel: "Low", insightText: "")
+        let r2 = DailyHealthRecord(date: date, experimentTag: "A", wellnessDeltaScore: 2, confidenceLevel: "Low", insightText: "")
         storage.saveRecord(r1)
         storage.saveRecord(r2)
         let loaded = storage.loadAllRecords()
         XCTAssertEqual(loaded.count, 1)
-        XCTAssertEqual(loaded.first?.experimentTag, "B")
+        XCTAssertEqual(loaded.first?.experimentTag, "A")
+        XCTAssertEqual(loaded.first?.wellnessDeltaScore, 2)
+    }
+
+    func test_savingSameDayWithDifferentTags_keepsSeparateRecords() {
+        let date = Date()
+        storage.saveRecord(DailyHealthRecord(date: date, experimentTag: "Morning", wellnessDeltaScore: 1, confidenceLevel: "Low", insightText: ""))
+        storage.saveRecord(DailyHealthRecord(date: date, experimentTag: "Evening", wellnessDeltaScore: 2, confidenceLevel: "Low", insightText: ""))
+
+        XCTAssertEqual(storage.loadAllRecords().count, 2)
+        XCTAssertEqual(storage.loadAllRecords(tagFilter: "Morning").map(\.wellnessDeltaScore), [1])
+        XCTAssertEqual(storage.loadAllRecords(tagFilter: "Evening").map(\.wellnessDeltaScore), [2])
+    }
+
+    func test_customDateIntervalFiltersRecordsVoiceAndEyeSummaries() {
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        let before = base.addingTimeInterval(-86_400)
+        let inside = base.addingTimeInterval(3_600)
+        let after = base.addingTimeInterval(172_800)
+        let interval = DateInterval(start: base, end: base.addingTimeInterval(86_400))
+
+        storage.saveRecord(DailyHealthRecord(date: before, experimentTag: "Morning", wellnessDeltaScore: -1, confidenceLevel: "Low", insightText: "Before"))
+        storage.saveRecord(DailyHealthRecord(date: inside, experimentTag: "Morning", wellnessDeltaScore: 4, confidenceLevel: "Low", insightText: "Inside"))
+        storage.saveRecord(DailyHealthRecord(date: after, experimentTag: "Morning", wellnessDeltaScore: 9, confidenceLevel: "Low", insightText: "After"))
+
+        storage.saveVoiceSession(VoiceTrackingSession(
+            date: before,
+            experimentTag: "Morning",
+            promptTag: "daily_voice_check_v1",
+            result: VoiceTrackingResult(completedAt: before, durationSeconds: 8, voiceScore: 55, averageVolumeDb: -28, volumeStdDevDb: 3, silenceRatio: 0.1, peakVolumeDb: -12)
+        ))
+        storage.saveVoiceSession(VoiceTrackingSession(
+            date: inside,
+            experimentTag: "Morning",
+            promptTag: "daily_voice_check_v1",
+            result: VoiceTrackingResult(completedAt: inside, durationSeconds: 8, voiceScore: 72, averageVolumeDb: -24, volumeStdDevDb: 3, silenceRatio: 0.1, peakVolumeDb: -11)
+        ))
+
+        storage.saveEyeFocusSummary(EyeFocusAISummary(
+            resultCompletedAt: before,
+            generatedAt: before,
+            model: "fixture",
+            sourceLogFileName: "before.json",
+            experimentTag: "Morning",
+            overallSummary: "Before",
+            sections: []
+        ))
+        storage.saveEyeFocusSummary(EyeFocusAISummary(
+            resultCompletedAt: inside,
+            generatedAt: inside,
+            model: "fixture",
+            sourceLogFileName: "inside.json",
+            experimentTag: "Morning",
+            overallSummary: "Inside",
+            sections: []
+        ))
+
+        XCTAssertEqual(storage.loadAllRecords(tagFilter: "Morning", dateInterval: interval).map(\.wellnessDeltaScore), [4])
+        XCTAssertEqual(storage.loadVoiceSessions(tagFilter: "Morning", dateInterval: interval).map(\.result.voiceScore), [72])
+        XCTAssertEqual(storage.loadEyeFocusSummaries(tagFilter: "Morning", dateInterval: interval).map(\.overallSummary), ["Inside"])
+        XCTAssertEqual(storage.latestEyeFocusSummary(tagFilter: "Morning", dateInterval: interval)?.overallSummary, "Inside")
     }
 
     func test_customExperimentLabel_persistsAlongsideEnum() {
@@ -98,6 +158,28 @@ final class LocalStorageManagerTests: XCTestCase {
         XCTAssertEqual(windowed.count, 1)
     }
 
+    func test_availableExperimentTags_deduplicatesAndSortsStoredTags() {
+        let now = Date()
+        storage.saveRecord(DailyHealthRecord(date: now, experimentTag: "Evening", wellnessDeltaScore: 0, confidenceLevel: "Low", insightText: ""))
+        storage.saveRecord(DailyHealthRecord(date: now.addingTimeInterval(-60), experimentTag: " Morning ", wellnessDeltaScore: 0, confidenceLevel: "Low", insightText: ""))
+        storage.saveVoiceSession(VoiceTrackingSession(
+            date: now,
+            experimentTag: "Morning",
+            promptTag: "daily_voice_check_v1",
+            result: VoiceTrackingResult(
+                completedAt: now,
+                durationSeconds: 8,
+                voiceScore: 80,
+                averageVolumeDb: -24,
+                volumeStdDevDb: 3,
+                silenceRatio: 0.1,
+                peakVolumeDb: -11
+            )
+        ))
+
+        XCTAssertEqual(storage.availableExperimentTags(), ["Evening", "Morning"])
+    }
+
     func test_saveVoiceSession_stripsLiveConversationData() {
         let result = VoiceTrackingResult(
             completedAt: Date(),
@@ -115,7 +197,7 @@ final class LocalStorageManagerTests: XCTestCase {
         )
         let session = VoiceTrackingSession(
             date: result.completedAt,
-            experimentTag: "Morning Sunlight",
+            experimentTag: "Morning",
             promptTag: "daily_voice_check_v1",
             result: result
         )
@@ -124,7 +206,7 @@ final class LocalStorageManagerTests: XCTestCase {
 
         let loaded = storage.loadVoiceSessions()
         XCTAssertEqual(loaded.count, 1)
-        XCTAssertEqual(loaded.first?.experimentTag, "Morning Sunlight")
+        XCTAssertEqual(loaded.first?.experimentTag, "Morning")
         XCTAssertEqual(loaded.first?.promptTag, "daily_voice_check_v1")
         XCTAssertEqual(loaded.first?.result.voiceScore, 91)
         XCTAssertNil(loaded.first?.result.conversationSummary)
@@ -192,6 +274,7 @@ final class LocalStorageManagerTests: XCTestCase {
         let export = try JSONDecoder.iso8601.decode(MultimodalAnalysisExport.self, from: data)
         XCTAssertEqual(export.schemaVersion, MultimodalAnalysisExport.schemaVersion)
         XCTAssertEqual(export.source, .voiceTracking)
+        XCTAssertEqual(export.experimentTag, "Morning")
         XCTAssertTrue(export.availableModalities.contains("voice_acoustic_features"))
         XCTAssertFalse(export.availableModalities.contains("voice_conversation_transcript"))
         XCTAssertFalse(export.availableModalities.contains("voice_conversation_summary"))

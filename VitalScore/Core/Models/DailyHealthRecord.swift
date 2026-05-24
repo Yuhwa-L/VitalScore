@@ -77,7 +77,7 @@ struct DailyHealthRecord: Codable, Identifiable {
     ) {
         self.id = id
         self.date = date
-        self.experimentTag = experimentTag
+        self.experimentTag = ExperimentTagValue.normalized(experimentTag)
         self.sleepHours = sleepHours
         self.restingHeartRateBPM = restingHeartRateBPM
         self.hrvMs = hrvMs

@@ -33,6 +33,7 @@ struct ReactionLog: Codable {
 }
 
 struct GazeLogFile: Codable {
+    let experimentTag: String?
     let backend: String
     let startedAt: Date
     let testStartedAt: Date
@@ -56,6 +57,7 @@ enum GazeDataLogger {
         durationSeconds: TimeInterval,
         calibration: CalibrationSummary?,
         screenSize: CGSize,
+        experimentTag: String,
         reaction: ReactionLog? = nil
     ) -> URL? {
         let logEntries = samples.map { s in
@@ -80,6 +82,7 @@ enum GazeDataLogger {
         }
 
         let file = GazeLogFile(
+            experimentTag: ExperimentTagValue.normalized(experimentTag),
             backend: backend,
             startedAt: startedAt,
             testStartedAt: testStartedAt,

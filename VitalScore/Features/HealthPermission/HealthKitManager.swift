@@ -80,37 +80,10 @@ final class HealthKitManager: ObservableObject {
     }
 
     private func loadFromBundleSync() {
-        guard let url = Bundle.main.url(forResource: "health_seed", withExtension: "json", subdirectory: "MockData")
-                ?? Bundle.main.url(forResource: "health_seed", withExtension: "json"),
-              let data = try? Data(contentsOf: url),
-              let file = try? JSONDecoder().decode(MockHealthFile.self, from: data),
-              let today = file.days.first(where: { $0.dayOffset == 0 }) ?? file.days.last
-        else {
-            print("[Mock] Could not load health_seed.json — falling back to defaults.")
-            latestRestingHeartRate = 62
-            latestHRV = 58
-            todaySteps = 7500
-            todayActiveEnergy = 350
-            lastNightSleepHours = 7.2
-            return
-        }
-        latestRestingHeartRate = today.restingHeartRateBPM
-        latestHRV = today.hrvMs
-        todaySteps = today.steps
-        todayActiveEnergy = today.activeEnergyKcal
-        lastNightSleepHours = today.sleepHours
+        latestRestingHeartRate = 62
+        latestHRV = 58
+        todaySteps = 7500
+        todayActiveEnergy = 350
+        lastNightSleepHours = 7.2
     }
-}
-
-struct MockHealthFile: Decodable {
-    let days: [MockHealthDay]
-}
-
-struct MockHealthDay: Decodable {
-    let dayOffset: Int
-    let restingHeartRateBPM: Double?
-    let hrvMs: Double?
-    let steps: Double?
-    let activeEnergyKcal: Double?
-    let sleepHours: Double?
 }

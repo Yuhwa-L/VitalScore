@@ -12,6 +12,7 @@ struct MultimodalAnalysisExport: Codable, Identifiable {
     let schemaVersion: String
     let createdAt: Date
     let source: AnalysisExportSource
+    let experimentTag: String?
     let llmInputGuidance: String
     let availableModalities: [String]
     let missingModalities: [String]
@@ -38,6 +39,7 @@ struct MultimodalAnalysisExport: Codable, Identifiable {
             schemaVersion: schemaVersion,
             createdAt: Date(),
             source: .eyeFocusTest,
+            experimentTag: experimentTag(dailyRecord: dailyRecord, voiceSession: nil),
             llmInputGuidance: guidance,
             availableModalities: availableModalities(dailyRecord: dailyRecord, eyeFocusResult: result, voiceSession: nil),
             missingModalities: missingModalities(dailyRecord: dailyRecord, eyeFocusResult: result, voiceSession: nil),
@@ -58,6 +60,7 @@ struct MultimodalAnalysisExport: Codable, Identifiable {
             schemaVersion: schemaVersion,
             createdAt: Date(),
             source: .voiceTracking,
+            experimentTag: experimentTag(dailyRecord: dailyRecord, voiceSession: session),
             llmInputGuidance: guidance,
             availableModalities: availableModalities(dailyRecord: dailyRecord, eyeFocusResult: nil, voiceSession: session),
             missingModalities: missingModalities(dailyRecord: dailyRecord, eyeFocusResult: nil, voiceSession: session),
@@ -78,6 +81,13 @@ struct MultimodalAnalysisExport: Codable, Identifiable {
     audio is excluded unless an explicit debug upload opt-in attached WAV clips to the AI request. Raw camera frames \
     are intentionally not stored. Treat missing modalities as unavailable rather than zero.
     """
+
+    private static func experimentTag(
+        dailyRecord: DailyHealthRecord?,
+        voiceSession: VoiceTrackingSession?
+    ) -> String {
+        ExperimentTagValue.normalized(dailyRecord?.experimentTag ?? voiceSession?.experimentTag)
+    }
 
     private static func availableModalities(
         dailyRecord: DailyHealthRecord?,
@@ -124,6 +134,8 @@ struct MultimodalAnalysisExport: Codable, Identifiable {
                 context.append("Latest wellness insight: \(dailyRecord.insightText)")
             }
             context.append("Wellness score: \(dailyRecord.wellnessDeltaScore), confidence: \(dailyRecord.confidenceLevel)")
+        } else if let voiceSession {
+            context.append("Experiment tag: \(voiceSession.experimentTag)")
         }
         if let eyeFocusResult {
             context.append("Eye-focus score: \(Int(eyeFocusResult.eyeFocusScore)); average reaction \(Int(eyeFocusResult.averageReactionMs)) ms.")

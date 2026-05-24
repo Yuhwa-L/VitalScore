@@ -28,7 +28,8 @@ targets:
           - Resources/Info.plist
           - Resources/VitalScore.entitlements
           - Resources/MockData
-      - path: VitalScore/Resources/MockData
+          - Resources/TagData
+      - path: VitalScore/Resources/TagData
         buildPhase: resources
         type: folder
     configFiles:

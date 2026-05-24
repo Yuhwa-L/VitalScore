@@ -5,7 +5,16 @@ struct EyeFocusTestView: View {
     @StateObject private var manager = EyeFocusTestManager()
     @State private var didDeliverResult = false
     @Environment(\.dismiss) private var dismiss
+    let experimentTag: String
     let onFinished: (EyeFocusTestResult) -> Void
+
+    init(
+        experimentTag: String = ExperimentTagValue.untagged,
+        onFinished: @escaping (EyeFocusTestResult) -> Void
+    ) {
+        self.experimentTag = ExperimentTagValue.normalized(experimentTag)
+        self.onFinished = onFinished
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -33,7 +42,11 @@ struct EyeFocusTestView: View {
                 content(in: geo.size)
             }
             .onAppear {
+                manager.setExperimentTag(experimentTag)
                 manager.setScreenSize(geo.size)
+            }
+            .onChange(of: experimentTag) { _, newTag in
+                manager.setExperimentTag(newTag)
             }
             .onChange(of: geo.size) { _, newSize in
                 manager.setScreenSize(newSize)
@@ -329,72 +342,11 @@ struct EyeFocusTestView: View {
     @ViewBuilder
     private func resultView(_ result: EyeFocusTestResult) -> some View {
         ScrollView {
-            VStack(spacing: 16) {
-                Text("Eye-Focus Score")
-                    .font(.headline)
-                    .foregroundColor(.secondary)
-                Text("\(Int(result.eyeFocusScore))")
-                    .font(.system(size: 72, weight: .bold))
-                    .foregroundColor(.primary)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Reaction-time score: \(Int(result.reactionScore))")
-                    Text("Average reaction: \(Int(result.averageReactionMs)) ms")
-                    Text("Variability: \(Int(result.reactionStdDevMs)) ms")
-                    Text("Missed targets: \(result.missedTargets)")
-                    Text("False taps: \(result.falseTaps)")
-                    if let g = result.gazeMetrics {
-                        Divider()
-                        Text("Gaze score: \(Int(g.gazeScore))")
-                        Text("Gaze accuracy: \(Int(g.gazeAccuracyPx)) px")
-                        Text("Gaze stability: \(Int(g.gazeStabilityPx)) px")
-                        Text("Blink rate: \(Int(g.blinkRatePerMin))/min")
-                        Text("Tracking loss: \(Int(g.trackingLossPct))%")
-                        Text("Samples collected: \(g.sampleCount)")
-                    }
-                }
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal)
-
-                if let summary = result.aiSummary {
-                    Divider()
-                    VStack(alignment: .leading, spacing: 8) {
-                        Label("AI summary", systemImage: "sparkles")
-                            .font(.caption)
-                            .foregroundColor(.indigo)
-                        Text("Model: \(summary.model)")
-                            .font(.caption2.monospaced())
-                            .foregroundColor(.secondary)
-                        Text(shortSummary(summary.overallSummary, maxCharacters: 260))
-                            .font(.caption)
-                            .foregroundColor(.primary)
-                        ForEach(summary.sections) { section in
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(section.title)
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundColor(.primary)
-                                Text(shortSummary(section.summary, maxCharacters: 180))
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal)
-                } else if let error = manager.aiSummaryError {
-                    Divider()
-                    VStack(alignment: .leading, spacing: 6) {
-                        Label("AI summary unavailable", systemImage: "exclamationmark.triangle.fill")
-                            .font(.caption)
-                            .foregroundColor(.orange)
-                        Text(error)
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal)
-                }
+            VStack(spacing: 18) {
+                resultHero(result)
+                keyMetricsGrid(result)
+                reportSummary(result)
+                signalQualityPanel(result)
 
                 Button {
                     complete(result)
@@ -413,6 +365,234 @@ struct EyeFocusTestView: View {
         }
     }
 
+    private func resultHero(_ result: EyeFocusTestResult) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Eye Movement Report")
+                        .font(.title3.weight(.semibold))
+                        .foregroundColor(.primary)
+                    Text(result.completedAt.formatted(date: .abbreviated, time: .shortened))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                scoreBadge(scoreBand(result.eyeFocusScore))
+            }
+
+            HStack(alignment: .lastTextBaseline, spacing: 12) {
+                Text("\(Int(result.eyeFocusScore.rounded()))")
+                    .font(.system(size: 76, weight: .bold))
+                    .foregroundColor(scoreColor(result.eyeFocusScore))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Eye-focus score")
+                        .font(.headline)
+                    Text(heroSubtitle(result))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .padding(.horizontal)
+    }
+
+    private func keyMetricsGrid(_ result: EyeFocusTestResult) -> some View {
+        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+            reportMetricTile(
+                title: "Reaction",
+                value: "\(Int(result.averageReactionMs.rounded()))",
+                unit: "ms avg",
+                icon: "bolt.fill",
+                tint: .blue,
+                footer: "\(Int(result.reactionStdDevMs.rounded())) ms variability"
+            )
+            reportMetricTile(
+                title: "Accuracy",
+                value: result.gazeMetrics.map { "\(Int($0.gazeAccuracyPx.rounded()))" } ?? "--",
+                unit: "px error",
+                icon: "scope",
+                tint: .indigo,
+                footer: "lower is better"
+            )
+            reportMetricTile(
+                title: "Stability",
+                value: result.gazeMetrics.map { "\(Int($0.gazeStabilityPx.rounded()))" } ?? "--",
+                unit: "px spread",
+                icon: "waveform.path.ecg",
+                tint: .teal,
+                footer: "steadier gaze signal"
+            )
+            reportMetricTile(
+                title: "Misses",
+                value: "\(result.missedTargets + result.falseTaps)",
+                unit: "total",
+                icon: "hand.tap.fill",
+                tint: .orange,
+                footer: "\(result.missedTargets) missed, \(result.falseTaps) false"
+            )
+        }
+        .padding(.horizontal)
+    }
+
+    @ViewBuilder
+    private func reportSummary(_ result: EyeFocusTestResult) -> some View {
+        if let summary = result.aiSummary {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 8) {
+                    Label("AI Report", systemImage: "sparkles")
+                        .font(.headline)
+                        .foregroundColor(.indigo)
+                    Spacer()
+                    if let confidence = summary.confidence {
+                        confidenceChip(confidence)
+                    }
+                }
+
+                Text(shortSummary(summary.overallSummary, maxCharacters: 300))
+                    .font(.subheadline)
+                    .foregroundColor(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                ForEach(summary.sections) { section in
+                    summarySectionRow(section)
+                }
+
+                Text("Model: \(summary.model)")
+                    .font(.caption2.monospaced())
+                    .foregroundColor(.secondary)
+            }
+            .reportPanel()
+            .padding(.horizontal)
+        } else if let error = manager.aiSummaryError {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("AI report unavailable", systemImage: "exclamationmark.triangle.fill")
+                    .font(.headline)
+                    .foregroundColor(.orange)
+                Text(error)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .reportPanel()
+            .padding(.horizontal)
+        }
+    }
+
+    @ViewBuilder
+    private func signalQualityPanel(_ result: EyeFocusTestResult) -> some View {
+        if let g = result.gazeMetrics {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Signal Quality")
+                    .font(.headline)
+                HStack(spacing: 12) {
+                    compactMetric("Tracking loss", value: "\(Int(g.trackingLossPct.rounded()))%")
+                    compactMetric("Blink rate", value: "\(Int(g.blinkRatePerMin.rounded()))/min")
+                    compactMetric("Samples", value: "\(g.sampleCount)")
+                }
+                HStack(spacing: 12) {
+                    compactMetric("Gaze score", value: "\(Int(g.gazeScore.rounded()))")
+                    compactMetric("Fixation", value: "\(Int(g.fixationDurationMs.rounded())) ms")
+                    compactMetric("Backend", value: manager.gazeBackend.displayName)
+                }
+            }
+            .reportPanel()
+            .padding(.horizontal)
+        }
+    }
+
+    private func reportMetricTile(
+        title: String,
+        value: String,
+        unit: String,
+        icon: String,
+        tint: Color,
+        footer: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Image(systemName: icon)
+                    .font(.caption.weight(.bold))
+                    .foregroundColor(tint)
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.secondary)
+                Spacer(minLength: 0)
+            }
+            HStack(alignment: .lastTextBaseline, spacing: 4) {
+                Text(value)
+                    .font(.title2.weight(.bold))
+                    .foregroundColor(.primary)
+                Text(unit)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+            Text(footer)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, minHeight: 112, alignment: .topLeading)
+        .padding(12)
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(8)
+    }
+
+    private func summarySectionRow(_ section: EyeFocusAISummarySection) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: sectionIcon(section.title))
+                .font(.caption.weight(.bold))
+                .foregroundColor(.indigo)
+                .frame(width: 22, height: 22)
+                .background(Color.indigo.opacity(0.1))
+                .clipShape(Circle())
+            VStack(alignment: .leading, spacing: 3) {
+                Text(section.title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.primary)
+                Text(shortSummary(section.summary, maxCharacters: 220))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func compactMetric(_ label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+            Text(value)
+                .font(.caption.weight(.semibold))
+                .foregroundColor(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func confidenceChip(_ confidence: String) -> some View {
+        Text(confidence.capitalized)
+            .font(.caption2.weight(.semibold))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(confidenceColor(confidence).opacity(0.14))
+            .foregroundColor(confidenceColor(confidence))
+            .cornerRadius(8)
+    }
+
+    private func scoreBadge(_ band: String) -> some View {
+        Text(band)
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(scoreBandColor(band).opacity(0.14))
+            .foregroundColor(scoreBandColor(band))
+            .cornerRadius(8)
+    }
+
     private func complete(_ result: EyeFocusTestResult) {
         guard !didDeliverResult else { return }
         didDeliverResult = true
@@ -429,6 +609,64 @@ struct EyeFocusTestView: View {
         guard normalized.count > maxCharacters else { return normalized }
         let end = normalized.index(normalized.startIndex, offsetBy: maxCharacters)
         return String(normalized[..<end]).trimmingCharacters(in: .whitespacesAndNewlines) + "..."
+    }
+
+    private func heroSubtitle(_ result: EyeFocusTestResult) -> String {
+        if let summary = result.aiSummary {
+            return shortSummary(summary.overallSummary, maxCharacters: 92)
+        }
+        if result.gazeMetrics == nil {
+            return "Reaction timing was captured. Gaze details were not available for this run."
+        }
+        return "Reaction timing and gaze tracking were combined into this wellness score."
+    }
+
+    private func scoreBand(_ score: Double) -> String {
+        if score >= 80 { return "Strong" }
+        if score >= 60 { return "Steady" }
+        return "Needs signal"
+    }
+
+    private func scoreColor(_ score: Double) -> Color {
+        if score >= 80 { return .green }
+        if score >= 60 { return .primary }
+        return .orange
+    }
+
+    private func scoreBandColor(_ band: String) -> Color {
+        switch band {
+        case "Strong": return .green
+        case "Steady": return .blue
+        default: return .orange
+        }
+    }
+
+    private func confidenceColor(_ confidence: String) -> Color {
+        switch confidence.lowercased() {
+        case "high": return .green
+        case "medium": return .blue
+        default: return .orange
+        }
+    }
+
+    private func sectionIcon(_ title: String) -> String {
+        let normalized = title.lowercased()
+        if normalized.contains("performance") || normalized.contains("reaction") {
+            return "bolt.fill"
+        }
+        if normalized.contains("gaze") || normalized.contains("control") {
+            return "scope"
+        }
+        if normalized.contains("quality") || normalized.contains("signal") {
+            return "checkmark.seal.fill"
+        }
+        if normalized.contains("changed") {
+            return "chart.line.uptrend.xyaxis"
+        }
+        if normalized.contains("tip") || normalized.contains("next") {
+            return "lightbulb.fill"
+        }
+        return "circle.fill"
     }
 
     private var startButtonLabel: String {
@@ -542,5 +780,14 @@ struct EyeFocusTestView: View {
         case .countdown, .running: return 0.45
         case .processing, .finished: return 0.7
         }
+    }
+}
+
+private extension View {
+    func reportPanel() -> some View {
+        padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.secondarySystemBackground))
+            .cornerRadius(8)
     }
 }

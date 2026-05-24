@@ -6,11 +6,11 @@ final class VoiceAIConversationBuilderTests: XCTestCase {
         let session = makeSession(score: 72, baselineSessionsUsed: 0, eGeMAPS: nil)
 
         let context = VoiceAIConversationBuilder.makeContext(
-            experimentTag: "Morning sunlight",
+            experimentTag: "Morning",
             history: [session]
         )
 
-        XCTAssertEqual(context.experimentTag, "Morning sunlight")
+        XCTAssertEqual(context.experimentTag, "Morning")
         XCTAssertEqual(context.recentHistory.first?.voiceScore, 72)
         XCTAssertEqual(context.desiredConversationTurns, 4)
         XCTAssertTrue(context.missingInputs.contains("personal voice baseline"))
