@@ -27,10 +27,6 @@ targets:
         excludes:
           - Resources/Info.plist
           - Resources/VitalScore.entitlements
-          - Resources/Data
-      - path: VitalScore/Resources/Data/TagData
-        buildPhase: resources
-        type: folder
     configFiles:
       Debug: Config/VitalScore.xcconfig
       Release: Config/VitalScore.xcconfig

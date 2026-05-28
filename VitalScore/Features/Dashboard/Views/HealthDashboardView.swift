@@ -8,6 +8,8 @@ struct HealthDashboardView: View {
 
     @State private var showEyeFocusTest = false
     @State private var showAdvancedVoiceTracking = false
+    @State private var pendingTrackingMode: TrackingMode?
+    @State private var activeTestTag: String = ExperimentTagValue.untagged
     @State private var showVoiceAnalysis = false
     @State private var showWellnessHistory = false
     @State private var showWellnessSuggestions = false
@@ -122,16 +124,28 @@ struct HealthDashboardView: View {
                 }
             }
             .navigationDestination(isPresented: $showEyeFocusTest) {
-                EyeFocusTestView(experimentTag: trackingTag, onFinished: handleEyeFocusFinished)
+                EyeFocusTestView(experimentTag: activeTestTag, onFinished: handleEyeFocusFinished)
             }
             .navigationDestination(isPresented: $showAdvancedVoiceTracking) {
                 VoiceTrackingView(
                     mode: .advancedFreestyle,
-                    previousSessions: storage.loadVoiceSessions(tagFilter: trackingTag),
-                    experimentTag: trackingTag,
+                    previousSessions: storage.loadVoiceSessions(tagFilter: activeTestTag),
+                    experimentTag: activeTestTag,
                     onAnalysisRequested: scoreCompletedVoiceSessionWithAPI,
                     onFinished: finishVoiceTrackingFlow
                 )
+            }
+            .sheet(item: $pendingTrackingMode) { mode in
+                TagPickerSheet(
+                    title: mode.pickerTitle,
+                    initialTag: trackingTag == ExperimentTagValue.untagged ? nil : trackingTag
+                ) { chosenTag in
+                    activeTestTag = ExperimentTagValue.normalized(chosenTag)
+                    switch mode {
+                    case .eyeFocus: showEyeFocusTest = true
+                    case .voice: showAdvancedVoiceTracking = true
+                    }
+                }
             }
             .navigationDestination(isPresented: $showVoiceAnalysis) {
                 VoiceAnalysisDashboardView(sessions: filteredVoiceSessions)
@@ -257,7 +271,7 @@ struct HealthDashboardView: View {
                 systemImage: "eye",
                 tint: .indigo
             ) {
-                showEyeFocusTest = true
+                pendingTrackingMode = .eyeFocus
             }
 
             trackingButton(
@@ -265,7 +279,7 @@ struct HealthDashboardView: View {
                 systemImage: "waveform.path.ecg",
                 tint: .teal
             ) {
-                showAdvancedVoiceTracking = true
+                pendingTrackingMode = .voice
             }
         }
     }
@@ -530,12 +544,12 @@ struct HealthDashboardView: View {
             storage.saveEyeFocusSummary(summary)
         }
 
-        let baselineNow = baseline(for: trackingTag)
-        let existingRecord = trackingTodayRecord
+        let baselineNow = baseline(for: activeTestTag)
+        let existingRecord = recordForToday(tagFilter: activeTestTag)
         let todayRecord = DailyHealthRecord(
             id: existingRecord?.id ?? UUID(),
             date: existingRecord?.date ?? Date(),
-            experimentTag: trackingTag,
+            experimentTag: activeTestTag,
             sleepHours: existingRecord?.sleepHours ?? healthKit.lastNightSleepHours,
             restingHeartRateBPM: existingRecord?.restingHeartRateBPM ?? healthKit.latestRestingHeartRate,
             hrvMs: existingRecord?.hrvMs ?? healthKit.latestHRV,
@@ -987,5 +1001,19 @@ private struct AnalysisTile: View {
             .cornerRadius(8)
         }
         .buttonStyle(.plain)
+    }
+}
+
+enum TrackingMode: String, Identifiable {
+    case eyeFocus
+    case voice
+
+    var id: String { rawValue }
+
+    var pickerTitle: String {
+        switch self {
+        case .eyeFocus: return "Tag this eye-focus test"
+        case .voice: return "Tag this voice test"
+        }
     }
 }

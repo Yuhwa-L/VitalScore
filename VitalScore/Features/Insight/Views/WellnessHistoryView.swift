@@ -109,6 +109,13 @@ struct WellnessHistoryView: View {
                 .foregroundStyle(scoreColor(record.wellnessDeltaScore))
             }
             .chartYScale(domain: -20...20)
+            .chartXAxis {
+                AxisMarks(values: .automatic(desiredCount: 4)) { _ in
+                    AxisGridLine()
+                    AxisTick()
+                    AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                }
+            }
             .frame(height: 190)
         }
         .panelStyle()

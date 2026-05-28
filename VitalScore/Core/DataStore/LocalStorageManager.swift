@@ -11,6 +11,7 @@ final class LocalStorageManager: ObservableObject {
     static let aiAnalysisIndexFileName = "ai_analysis_results.jsonl"
     static let eyeFocusSummariesKey = "com.vitalscore.eyeFocusSummaries.v1"
     static let tagDemoAutoloadSuppressedKey = "com.vitalscore.tagDemoAutoloadSuppressed.v1"
+    static let customTagsKey = "com.vitalscore.customTags.v1"
 
     let defaults: UserDefaults
     private let exportDirectoryOverride: URL?
@@ -660,6 +661,25 @@ final class LocalStorageManager: ObservableObject {
             return String(data: data, encoding: .utf8)
         }
         try? (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    func loadCustomTags() -> [String] {
+        guard let data = defaults.data(forKey: Self.customTagsKey),
+              let tags = try? JSONDecoder().decode([String].self, from: data)
+        else { return [] }
+        return tags
+    }
+
+    func saveCustomTags(_ tags: [String]) {
+        let cleaned = tags
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        var seen = Set<String>()
+        let unique = cleaned.filter { seen.insert($0.lowercased()).inserted }
+        if let data = try? JSONEncoder().encode(unique) {
+            defaults.set(data, forKey: Self.customTagsKey)
+            revision += 1
+        }
     }
 
     private struct ExperimentSelectionPayload: Codable {

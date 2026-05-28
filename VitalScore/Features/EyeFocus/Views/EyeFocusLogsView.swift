@@ -96,6 +96,13 @@ struct EyeFocusLogsView: View {
                     .foregroundStyle(metric.color)
             }
             .chartYScale(domain: .automatic(includesZero: false, reversed: metric.invertAxis))
+            .chartXAxis {
+                AxisMarks(values: .automatic(desiredCount: 3)) { _ in
+                    AxisGridLine()
+                    AxisTick()
+                    AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                }
+            }
             .frame(height: 110)
             .padding(8)
             .background(Color(.secondarySystemBackground))
