@@ -31,3 +31,6 @@ opensmile_comparison_output/
 
 # CocoaPods (unused, but defensive)
 Pods/
+
+# Video demo of VitalScore
+*.mp4

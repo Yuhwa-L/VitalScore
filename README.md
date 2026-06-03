@@ -4,6 +4,10 @@
 
 VitalScore is a personalized intervention analytics platform, built as a native iOS app in SwiftUI, that helps users objectively measure how lifestyle interventions affect their cognitive and physical performance over time. It is not a medical device and should not be used for diagnosis or treatment.
 
+## Demo Video
+
+Watch the demo: [https://www.youtube.com/watch?v=D_T13rhwgXU](https://www.youtube.com/watch?v=D_T13rhwgXU)
+
 ## Service Overview
 
 Millions of people experience fatigue, brain fog, and poor focus, but lack accessible tools to determine which lifestyle interventions actually improve their functioning. Existing wellness platforms primarily track passive biomarkers such as sleep duration, activity, and heart rate. VitalScore combines those biomarkers with short, active daily assessments to track the efficacy of interventions such as new supplements, diets, sleep schedules, or exercise routines.
